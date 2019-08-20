@@ -5,7 +5,7 @@
 # 
 
 # Set working directory
-setwd("//LY-LHQ-SRV/jake.diamond/Loire_DO")
+setwd("Z:/Loire_DO")
 
 # Load libraries
 library(tidyverse)

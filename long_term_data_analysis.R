@@ -5,7 +5,7 @@
 # 
 
 # Set working directory
-setwd("//LY-LHQ-SRV/jake.diamond/Loire_DO")
+setwd("Z:/Loire_DO")
 
 # Load libraries
 library(tidyverse)
@@ -86,8 +86,7 @@ df_sum <- df %>%
   summarise_all(.funs = list(mean = mean, 
                              sd = sd, 
                              max = max, 
-                             min = min,
-                             count = count), 
+                             min = min), 
                 na.rm = TRUE) %>%
   filter(str_detect(site, "^040"))
 df_sum_loc <- left_join(df_sum, loc, by = "site")
@@ -95,6 +94,6 @@ write_csv2(df_sum_loc, path = "Data/loire_wq_loc.csv")
 
 # Plot of data summary
 df %>%
-  filter(str_detect(site, "^042")) %>%
+  filter(str_detect(site, "^040")) %>%
   ggviolin(x = "site", y = "O2", add = "none") %>%
   add_summary("mean_sd")

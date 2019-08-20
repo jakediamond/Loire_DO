@@ -5,22 +5,28 @@
 # 
 
 # Set working directory
-setwd("//LY-LHQ-SRV/jake.diamond/Loire_DO")
+setwd("Z:/Loire_DO")
 
 # Load libraries
 library(tidyverse)
 library(readxl)
 library(lubridate)
 library(dygraphs)
+library(htmltools)
 
 # Load data
-df <- read_excel("Data/edf_1993_2000.xlsx",
+df <- read_excel("Data/EDF/edf_1993_2000.xlsx",
                  sheet = 1,
                  col_names = c("code", "var", "datetime", "value",
                                "qc_code", "valid_code"),
                  skip = 1) %>%
-  bind_rows(read_excel("Data/edf_2008_2018.xlsx",
+  bind_rows(read_excel("Data/EDF/edf_2008_2018.xlsx",
                        sheet = 1,
+                       col_names = c("code", "var", "datetime", "value",
+                                     "qc_code", "valid_code"),
+                       skip = 1)) %>%
+  bind_rows(read_excel("Data/EDF/edf_2008_2018.xlsx",
+                       sheet = 2,
                        col_names = c("code", "var", "datetime", "value",
                                      "qc_code", "valid_code"),
                        skip = 1))
@@ -37,11 +43,24 @@ df <- df %>%
          datetime = dmy_hms(datetime, tz = "UTC")
   )
 
-# Daily average
+# Write to file
+saveRDS(df, file = "Data/all_DO_data")
+
+# Site name cleaning
+df <- df %>%
+  mutate(site = case_when(grepl("Vienne", site) ~ "vienne",
+                           grepl("Belleville", site) ~ "belleville",
+                           grepl("Chinon", site) ~ "chinon",
+                           grepl("Dampierre", site) ~ "dampierre",
+                           grepl("Saint", site) ~ "saint_laurent"))
+
+# Daily average, magnitude, and min
 df_day <- df %>%
   mutate(date = date(datetime)) %>%
   group_by(site, date, var) %>%
-  summarise(mean = mean(value, na.rm = TRUE)) %>%
+  summarise(mean = mean(value, na.rm = TRUE),
+            min = min(value, na.rm = TRUE),
+            mag = max(value, na.rm = TRUE) - min) %>%
   ungroup()
 
 # For later plot, make everything in the same year (2015)
@@ -73,7 +92,6 @@ p <- ggplot(data = df_day,
   ) +
   guides(color = guide_legend(nrow = 2)) + 
   ylab("Mean daily value")
-p
 
 ggsave(plot = p,
        filename = "Figures/mean_daily_values_all_sites_both_periods.tiff",
@@ -83,19 +101,76 @@ ggsave(plot = p,
        units = "in",
        dpi = 300)
 
+# Graph of 15 minute time series for every site by year
+df_annual <- df %>% 
+  mutate(year = year(datetime)) %>%
+  filter(var == "DO") %>%
+  select(datetime, var, value, site, year) %>%
+  spread(var, value)
+
+p_annual <- ggplot(data = df_annual,
+                   aes(x = datetime,
+                       y = DO)) + 
+  geom_line() +
+  facet_grid(rows = vars(site)) +
+  scale_x_datetime(date_breaks = "3 months",
+               date_labels = "%m") +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        panel.grid = element_blank()
+  ) +
+  ylab(expression("DO (mg "*L^-1*")"))
+
+p_annual <- ggplotly(p_annual)
+p_annual
+
+
 # Interactive dygraphs
 # First need to get data in correct format
-bv <- df %>%
-  filter(site == "Loire à Belleville Amont",
-         var %in% c("DO", "SC")) %>%
-  select(datetime, var, value) %>%
-  spread(var, value) %>%
+df_dy <- df_annual %>%
+  select(datetime, site, DO) %>%
+  spread(site, DO) %>%
   zoo::zoo(order.by = .$datetime)
-dygraph(bv, main = "Loire à Belleville Amont") %>% 
+df_dy$datetime <- NULL
+
+dygraph(df_dy, main = "Dissolved oxygen time series") %>% 
   dyOptions(drawGrid = F) %>%
   dyAxis("y", label = "DO", independentTicks = TRUE) %>%
-  dyAxis("y2", label = "SC", independentTicks = TRUE) %>%
-  dySeries("DO", axis=('y')) %>%
-  dySeries("SC", axis=('y2'))
+  dyRangeSelector()
 
+dy_graphs <- list(
+  dygraph(df_dy$belleville, 
+          main = "Belleville",
+          group = "df_dy",
+          width=800,height=200) %>% 
+    dyOptions(drawGrid = F) %>%
+    dyAxis("y", label = "DO (mg L<sup>-1</sup>)", 
+           independentTicks = TRUE),
+  
+  dygraph(df_dy$dampierre, 
+          main = "Dampierre",
+          group = "df_dy",
+          width=800,height=200) %>% 
+    dyOptions(drawGrid = F) %>%
+    dyAxis("y", label = "DO (mg L<sup>-1</sup>)", 
+           independentTicks = TRUE),
+  
+  dygraph(df_dy$chinon, 
+          main = "Chinon",
+          group = "df_dy",
+          width=800,height=200) %>% 
+    dyOptions(drawGrid = F) %>%
+    dyAxis("y", label = "DO (mg L<sup>-1</sup>)", 
+           independentTicks = TRUE),
+  
+  dygraph(df_dy$vienne, 
+          main = "Vienne",
+          group = "df_dy",
+          width=800,height=200) %>% 
+    dyOptions(drawGrid = F) %>%
+    dyAxis("y", label = "DO (mg L<sup>-1</sup>)", 
+           independentTicks = TRUE) %>%
+    dyRangeSelector()
+)
 
+htmltools::browsable(htmltools::tagList(dy_graphs))
