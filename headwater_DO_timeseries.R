@@ -16,7 +16,6 @@ library(sf)
 # library(ggpubr)
 
 # # #Set your API Key
-# ggmap::register_google(key = "AIzaSyCUFlGlYPLtIqC99Fv_xy_XabflfVG9XXM")
 # 
 # 
 # # Get main satellite map
