@@ -37,6 +37,11 @@ df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
   arrange(date) %>%
   filter(between(date, ymd("1993-01-01"), ymd("2000-12-31")))
 
+# Get rid of negative values
+df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
+                               NA,
+                               df_q$discharge.daily)
+
 # DO data load and clean --------------------------------------------------
 # Load DO data
 df <- read_excel("Data/EDF/edf_1993_2000.xlsx",
@@ -133,25 +138,36 @@ dam <- as.data.frame(dam)
 # We choose a Bayesian model with both observation error and process error
 # We will pool K600
 bayes_name <- mm_name(type = 'bayes', 
-                      pool_K600 = 'linear', 
+                      pool_K600 = 'binned', 
                       err_obs_iid = TRUE, 
                       err_proc_iid = TRUE)
 bayes_name
 
 # Set the specifications
-bayes_specs <- specs(bayes_name)
+bayes_specs <- specs(bayes_name,
+                     burnin_steps = 1000,
+                     saved_steps = 500)
 bayes_specs
 
 
 # Fit the model with subsetted data, for loop ---------------------------------------
+mm <- metab(bayes_specs, 
+            data = dam,
+            data_daily = df_q)
+
+
+saveRDS(mm, file = "Data/Loire_DO/mm_1993_1996")
+
+
+
 mm_results <- vector("list", 6)
 
 for(i in 1995:2000){
   # get strings for subset of data
-  dt_str_start <- paste0(i, "-01-01 01:09:58")
-  dt_str_end <- paste0(i, "-12-31 00:09:58")
-  d_str_start <- paste0(i, "-01-01")
-  d_str_end <- paste0(i, "-12-31")
+  dt_str_start <- paste0(1993, "-01-01 01:09:58")
+  dt_str_end <- paste0(1996, "-12-31 00:09:58")
+  d_str_start <- paste0(1993, "-01-01")
+  d_str_end <- paste0(1996, "-12-31")
   # subset data
   dam_sub <- filter(dam,
                     between(solar.time,
@@ -185,13 +201,18 @@ mm_93 <- metab(bayes_specs,
 
 # Inspect the model -------------------------------------------------------
 mm
+get_fit(mm)$overall %>%
+  select(ends_with("Rhat"))
 
 # Daily metabolism predictions
-predict_metab(mm_93)
-plot_metab_preds(mm_93)
+predict_metab(mm)
+plot_metab_preds(mm)
 
-get_params(mm_93)
-plot_DO_preds(mm_93)
+get_params(mm)
+plot_DO_preds(mm)
+plot(get_params(mm)$K600.daily, predict_metab(mm)$ER)
+plot(get_params(mm)$date, get_params(mm)$K600.daily)
+
 
 bayes_npp_q <- predict_metab(mm_93)
 bayes_npp_q_p <- plot_DO_preds(mm_93)
@@ -238,3 +259,10 @@ ggplot(data = y,
 x <- bayes_npp_q %>%
   summarize(avgER = mean(ER),
             avgGPP = mean(GPP))
+
+results <- readRDS("Data/Loire_DO/metab_results_1994_2018.rds")
+plot(results$GPP[1:365], predict_metab(mm)$GPP[366:730])
+abline(0,1)
+plot(results$ER[1:365], predict_metab(mm)$ER[366:730])
+abline(0,1)
+plot(results$K600.daily[1:365], get_params(mm)$K600.daily[366:730])

@@ -43,8 +43,6 @@ df <- df %>%
          datetime = dmy_hms(datetime, tz = "UTC")
   )
 
-# Write to file
-saveRDS(df, file = "Data/all_DO_data")
 
 # Site name cleaning
 df <- df %>%
@@ -53,6 +51,9 @@ df <- df %>%
                            grepl("Chinon", site) ~ "chinon",
                            grepl("Dampierre", site) ~ "dampierre",
                            grepl("Saint", site) ~ "saint_laurent"))
+
+# Write to file
+saveRDS(df, file = "Data/all_DO_data")
 
 # Daily average, magnitude, and min
 df_day <- df %>%
