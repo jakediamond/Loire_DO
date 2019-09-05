@@ -56,16 +56,14 @@ df <- readRDS("Data/all_DO_cleaned") %>%
 # Force the correct time zone
 df$datetime <- force_tz(df$datetime, "Etc/GMT+1")
 
-# Create periods of 4 years and nest data
-df_n <- df %>%
+# Clean data a bit
+df <- df %>%
   filter(year < 2001) %>%
   mutate(time_frame = ifelse(year < 1997,
-                         1,
-                         2)) %>%
+                             1,
+                             2)) %>%
   select(DO_use, temp.water, site, datetime, time_frame) %>%
-  rename(DO.obs = DO_use) %>%
-  group_by(site, time_frame) %>%
-  nest()
+  rename(DO.obs = DO_use)
 
 # Prepare data for stream Metabolizer -------------------------------------
 # Calculate DO.sat, streamMetabolizer calculation
@@ -78,19 +76,19 @@ df_n <- df %>%
 #                           )
 
 # Florentina's DO.sat calculation
-dam$DO.sat <- ifelse(dam$temp.water == 0,
+df$DO.sat <- ifelse(df$temp.water == 0,
                      0,
-                     14.652 - 0.41022 * dam$temp.water + 0.007991 * 
-                       dam$temp.water^2 - 0.000077774 * dam$temp.water^3)
+                     14.652 - 0.41022 * df$temp.water + 0.007991 * 
+                       df$temp.water^2 - 0.000077774 * df$temp.water^3)
 
 # Convert to solar time at Gien station
-dam$solar.time <- calc_solar_time(dam$datetime, longitude = 2.5)
+df$solar.time <- calc_solar_time(df$datetime, longitude = 2.5)
 
 # Get rid of datetime
-dam$datetime <- NULL
+df$datetime <- NULL
 
 # Caclculate light
-dam$light <- calc_light(solar.time = dam$solar.time,
+df$light <- calc_light(solar.time = df$solar.time,
                        latitude = 47.7,
                        longitude = 2.5)
 
@@ -99,16 +97,31 @@ depth <- df_q %>%
   mutate(depth = 0.134 * discharge.daily^0.4125)
 
 # Combine depth with streamMetabolizer data
-dam <- depth %>%
-  right_join(dam %>%
+df <- depth %>%
+  right_join(df %>%
                mutate(date = date(solar.time))) %>%
   select(-date, -discharge.daily)
 
 # Get rid of discharge unless pooling
-# dam$discharge <- NULL
+# df$discharge <- NULL
 
 # Make sure it's a dataframe and not a tbl_df
-dam <- as.data.frame(dam)
+df <- as.data.frame(df)
+
+# Create periods of 4 years and nest data
+df_n <- df %>%
+  filter(site == "dampierre") %>%
+  select(-site) %>%
+  group_by(time_frame) %>%
+  nest() %>%
+  left_join(df_q %>%
+           mutate(time_frame = ifelse(year(date) < 1997,
+                                      1,
+                                      2)) %>%
+             group_by(time_frame) %>%
+             nest() %>%
+             rename(data_q = data))
+  
 
 # Configure the model -----------------------------------------------------
 # First choose the time frame to model
@@ -138,7 +151,7 @@ d_str_end <- switch(summer,
                     )
 
 # subset data
-dam_sub <- filter(dam,
+df_sub <- filter(df,
                   between(solar.time,
                           ymd_hms(dt_str_start),
                           ymd_hms(dt_str_end)))
@@ -185,9 +198,14 @@ bayes_specs
 
 
 # Fit the model with subsetted data ---------------------------------------
-mm <- metab(bayes_specs, 
-            data = dam_sub,
-            data_daily = df_q_sub)
+met_fun <- function(data, data_q, bayes_specs = bayes_specs){
+  metab(specs = bayes_specs, 
+        data = as.data.frame(data), 
+        data_daily = as.data.frame(data_q))
+}
+mm_all <- df_n %>%
+  mutate(mm = map2_df(data, data_q, met_fun)
+         )
 
 
 # Inspect the model -------------------------------------------------------
