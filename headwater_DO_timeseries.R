@@ -13,6 +13,7 @@ library(lubridate)
 library(readxl)
 library(ggmap)
 library(sf)
+library(scales)
 # library(ggpubr)
 
 # # #Set your API Key
@@ -130,6 +131,14 @@ df <- df %>%
          DO = X3) %>%
   left_join(meta)
 
+# Load point measurements
+pts <- read_excel("Data/Headwaters_DO/Field_data.xlsx") %>%
+  left_join(meta) %>%
+  rename(temp = `T (°C)`, DO = `DO (mg/L)`) %>%
+  filter(Datetime > ymd("2019-07-01"),
+         !(Site %in% c("Charpassonne la Valette",
+                      "Charpassonne la Jamarie")))
+
 # plot DO data
 # define limits to axes
 ylim.prim <- c(-0.5, 12)   
@@ -139,17 +148,32 @@ ylim.sec <- c(10, 30)
 b <- diff(ylim.prim)/diff(ylim.sec)
 a <- b*(ylim.prim[1] - ylim.sec[1])
 
+# Get x-axis breaks
+xbrks <- pretty_dates(df$datetime, 10)
+
+# Get 1% point of x length for label
+dt_uni <- unique(df$datetime)
+xpos <- dt_uni[order(as.POSIXct(dt_uni))][floor(0.01 * length(dt_uni))]
+
 # Plot
-p <- ggplot(df) +
-  geom_line(aes(x = datetime,
+p <- ggplot() +
+  geom_line(data = df, aes(x = datetime,
                   y = DO),
             color = "black") +
-  geom_line(aes(x = datetime,
+  geom_line(data = df, aes(x = datetime,
                 y = a + temp * b),
             color = "red") +
-  scale_x_datetime(date_breaks = "2 day",
+  geom_point(data = pts, aes(x = Datetime,
+                      y = DO),
+             color = "black",
+             size = 2) + 
+  geom_point(data = pts, aes(x = Datetime,
+                             y = a + temp * b),
+             color = "red",
+             size = 2) + 
+  scale_x_datetime(breaks = xbrks,
                    date_labels = "%d") +
-  scale_y_continuous(limits = c(0, 12),
+  scale_y_continuous(limits = c(-1, 12),
                      breaks = seq(0, 12, 3),
                      sec.axis = sec_axis(~ (. - a) / b, 
                                          name = expression("Stream temperature "
@@ -158,9 +182,10 @@ p <- ggplot(df) +
                      ) +
   facet_grid(rows = vars(Subwatershed_order),
              cols = vars(Subwatershed)) + 
-  geom_text(aes(x = ymd_hms("2019-07-13 12:00:00"),
-                y = 0,
-                label = Location),
+  geom_text(data = df, aes(x = ymd_hms(xpos),
+                y = -0.65,
+                label = Location,
+                hjust = "left"),
             size = 4) +
   # facet_wrap(~Site,
   #            labeller = label_wrap_gen(width = 18)) + 
@@ -182,7 +207,7 @@ p <- ggplot(df) +
 p
 
 # Save
-ggsave(filename = "Figures/initial_DO_timeseries_ordered.png",
+ggsave(filename = "Figures/initial_DO_timeseries_ordered_v2.png",
        device = "png",
        dpi = 300,
        width = 16,

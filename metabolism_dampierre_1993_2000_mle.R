@@ -5,17 +5,17 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("Z:/Loire_DO")
 
 # Load libraries
 library(tidyverse)
 library(readxl)
 library(lubridate)
 library(streamMetabolizer)
+library(dygraphs)
 
 # Look at what data inputs are needed for bayes model
-metab_inputs("bayes", "data")
+metab_inputs("mle", "data")
 
 # Discharge data load and clean -----------------------------------------------------
 # Load discharge data, but this is missing 1994-1995
@@ -76,7 +76,7 @@ dam <- df %>%
          year = year(datetime),
          date = date(datetime),
          month = month(datetime)) %>%
-  dplyr::filter(site == "dampierre",
+  filter(site == "dampierre",
          var %in% c("DO.obs", "temp.water")) %>%
   select(var, value, datetime) %>%
   spread(var, value)
@@ -108,26 +108,34 @@ dam$light <- calc_light(solar.time = dam$solar.time,
                        latitude = 47.7,
                        longitude = 2.5)
 
-# Calculate depth
-depth <- df_q %>%
-  mutate(depth = 0.134 * discharge.daily^0.4125)
+# Calculate depth (m) and depth (m/s), k600
+dv <- df_q %>%
+  mutate(depth = 0.134 * discharge.daily^0.4125,
+         vel = 0.165 * discharge.daily^0.275)
 
 # Combine depth with streamMetabolizer data
-dam <- depth %>%
+dam <- dv %>%
   right_join(dam %>%
                mutate(date = date(solar.time))) %>%
-  select(-date, -discharge.daily)
+  select(-date, -discharge.daily,
+         -vel)
+
+# Estimate K600 with O'Connor and Dobbins
+df_daily <- dv %>%
+  transmute(date = date,
+            K600.daily = 3.89 * (vel^0.5) / (depth^1.5)) %>%
+  as.data.frame()
 
 # Get rid of discharge unless pooling
-# dam$discharge <- NULL
+dam$discharge <- NULL
 
 # Make sure it's a dataframe and not a tbl_df
 dam <- as.data.frame(dam)
 
 # Configure the model -----------------------------------------------------
 # First choose the time frame to model
-yr_start <- 1994
-yr_end <- 1994
+yr_start <- 1993
+yr_end <- 2000
 
 # Choose if you want summer or not
 summer <- "no"
@@ -138,7 +146,7 @@ dt_str_start <- switch(summer,
                        yes = paste0(yr_start, "-05-01 01:09:58")
                        )
 dt_str_end <- switch(summer,
-                     no = paste0(yr_end, "-12-31 00:09:58"),
+                     no = paste0(yr_end, "-01-01 00:09:58"),
                      yes = paste0(yr_end, "-09-30 00:09:58")
                      )
 d_str_start <- switch(summer,
@@ -147,7 +155,7 @@ d_str_start <- switch(summer,
                       )
                       
 d_str_end <- switch(summer,
-                    no = paste0(yr_end, "-12-31"),
+                    no = paste0(yr_end, "-01-01"),
                     yes = paste0(yr_end, "-09-30")
                     )
 
@@ -156,81 +164,56 @@ dam_sub <- filter(dam,
                   between(solar.time,
                           ymd_hms(dt_str_start),
                           ymd_hms(dt_str_end)))
-df_q_sub <- filter(df_q,
-                   between(date,
-                           ymd(d_str_start),
-                           ymd(d_str_end)))
+# df_q_sub <- filter(df_q,
+#                    between(date,
+#                            ymd(d_str_start),
+#                            ymd(d_str_end)))
 
 # Choose a model structure
-# We choose a Bayesian model with both observation error and process error
-# We will pool K600
-bayes_name <- mm_name(type = 'bayes', 
-                      pool_K600 = 'binned', 
-                      err_obs_iid = TRUE, 
-                      err_proc_iid = TRUE)
-bayes_name
-
-# Calculate the natural-log-space centers of the discharge bins
-# These are the bins for the time frame of 
-# Use the width method as in the help file with with = 0.8 log units
-brks <- calc_bins(vec = log(df_q_sub$discharge.daily),
-                  method = "width",
-                  width = 0.8)$bounds
-
-# Estimate the k600 value for the river with Raymond et al. (2012), eq.7
-# at baseflow, k600 = 4725*(VS)^0.86*Q^-0.14*D^0.66
-# This is the hyperprior mean, 
-# the prior distribution of the mean of K600 for all days
-k6 <- 4725 * (0.25 * 0.0001)^0.86 * 73^-0.14 * 1^0.66
-
-# Set the prior for mean GPP, guessing around 8, 
-# because summer can be quite high
-gpp_mean <- 8
+# We choose a maximum likelihood model
+mle_name <- mm_name(type = 'mle')
+mle_name
 
 # Set the specifications
-bayes_specs <- specs(bayes_name,
-                     burnin_steps = 2000,
-                     saved_steps = 500
-                     # , GPP_daily_mu = gpp_mean
-                     # , K600_lnQ_nodes_centers = brks
-                     # , K600_lnQ_nodes_meanlog = rep(log(k6), length(brks))
-                     )
-bayes_specs
+mle_specs <- specs(mle_name)
+mle_specs
 
 
 # Fit the model with subsetted data ---------------------------------------
-mm <- metab(bayes_specs, 
+mle <- metab(mle_specs, 
             data = dam_sub,
-            data_daily = df_q_sub)
+            data_daily = df_daily)
 
 
 # Inspect the model -------------------------------------------------------
-mm
-get_fit(mm)$daily %>%
-  select(ends_with("Rhat"))
-
-mm <- readRDS("Data/Loire_DO/mm_2009_2011.rds")
-
-# Look at priors/posteriors
-plot_distribs(bayes_specs, "K600_daily_lnQ")
-plot_distribs(get_specs(mm), "GPP_daily")
-get_specs(mm)
 # Daily metabolism predictions
-predict_metab(mm)
-plot_metab_preds(mm)
-get_specs(mm)
-get_params(mm)
-plot_DO_preds(mm)
-plot(get_params(mm)$K600.daily, predict_metab(mm)$ER)
-plot(get_params(mm)$date, get_params(mm)$K600.daily)
-head(predict_DO(mm))
-get
-?plot_DO_preds()
+mle
+predict_metab(mle)
+plot_metab_preds(mle)
+get_params(mle)
+plot_DO_preds(mle)
+plot(get_params(mle)$K600.daily, predict_metab(mle)$ER,
+     xlim=c(0,10),
+     ylim=c(-15,0))
+plot(get_params(mle)$date, get_params(mle)$K600.daily,
+    ylim=c(-5,10))
+
+plot(df_q$discharge.daily, get_params(mle)$K600.daily)
+
+
+df_DO <- predict_DO(mle)
+bv_do <- df_DO %>%
+  select(DO.obs, DO.mod) %>%
+  zoo::zoo(order.by = df_DO$solar.time)
+dygraph(bv_do, main = "Loire à Dampierre") %>% 
+  dyOptions(drawGrid = F) %>%
+  dyAxis("y", label = "DO", independentTicks = TRUE) %>%
+  # dyAxis("y2", label = "SC", independentTicks = TRUE) %>%
+  dySeries("DO.mod", axis=('y')) %>%
+  dySeries("DO.obs", axis=('y'), drawPoints = TRUE)
+
+
+
+
 saveRDS(mm, file = "Data/Loire_DO/mm_1993_1996")
 mm <- readRDS("Data/Loire_DO/mm_1994.rds")
-
-do_test <- lag(get_data(mm)$DO.obs) + 
-  (predict_DO(mm)$DO.mod-lag(predict_DO(mm)$DO.mod))+
-  summary(get_fit(mm)$inst$err_proc_iid_mean)
-summary(get_fit(mm)$inst$err_obs_iid_mean)
-plot(do_test)
