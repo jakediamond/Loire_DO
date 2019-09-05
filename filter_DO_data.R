@@ -13,7 +13,6 @@ library(zoo)
 library(signal)
 library(imputeTS)
 library(dygraphs)
-library(anomalize)
 library(tidyverse)
 library(lubridate)
 
