@@ -5,7 +5,8 @@
 # 
 
 # Set working directory
-setwd("Z:/Loire_DO")
+# setwd("Z:/Loire_DO")
+setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
 library(tidyverse)
@@ -64,19 +65,19 @@ library(scales)
 # 
 # test_map <- ggmap_bbox(plot_loc)
 # # Create a map with all of the crime locations plotted.
-ggmap(plot_loc) +
-  # geom_sf(data = ws, alpha = 0.2, inherit.aes = FALSE) +
-  # geom_sf(data = riv, color = "blue", size = 1, inherit.aes = FALSE) +
-  # geom_path(data = r,
-  #           aes(x = long, y = lat,
-  #               group = group),
-  #           colour = "blue",
-  #           size = 1) +
-  geom_point(data = meta,
-             aes(x = Longitude,
-                 y = Latitude,
-                 colour = Subwatershed),
-             size = 3) + 
+# ggmap(plot_loc) +
+#   # geom_sf(data = ws, alpha = 0.2, inherit.aes = FALSE) +
+#   # geom_sf(data = riv, color = "blue", size = 1, inherit.aes = FALSE) +
+#   # geom_path(data = r,
+#   #           aes(x = long, y = lat,
+#   #               group = group),
+#   #           colour = "blue",
+#   #           size = 1) +
+#   geom_point(data = meta,
+#              aes(x = Longitude,
+#                  y = Latitude,
+#                  colour = Subwatershed),
+#              size = 3) + 
   
 # 
 #   
@@ -135,9 +136,7 @@ df <- df %>%
 pts <- read_excel("Data/Headwaters_DO/Field_data.xlsx") %>%
   left_join(meta) %>%
   rename(temp = `T (°C)`, DO = `DO (mg/L)`) %>%
-  filter(Datetime > ymd("2019-07-01"),
-         !(Site %in% c("Charpassonne la Valette",
-                      "Charpassonne la Jamarie")))
+  filter(Datetime > ymd("2019-07-01"))
 
 # plot DO data
 # define limits to axes
@@ -207,7 +206,7 @@ p <- ggplot() +
 p
 
 # Save
-ggsave(filename = "Figures/initial_DO_timeseries_ordered_v2.png",
+ggsave(filename = "Figures/initial_DO_timeseries_ordered_v3.png",
        device = "png",
        dpi = 300,
        width = 16,

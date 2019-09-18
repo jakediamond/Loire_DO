@@ -9,7 +9,6 @@
 setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
-# library(zoo)
 library(readxl)
 library(lubridate)
 library(streamMetabolizer)
@@ -43,8 +42,9 @@ df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
   bind_rows(df_q) %>%
   arrange(date) %>%
   right_join(dat_seq) %>%
-  filter(between(date, ymd("1993-01-01"), ymd("2000-12-31")))
-
+  filter(between(date, ymd("1993-01-01"), ymd("2000-12-31")) |
+           between(date, ymd("2008-01-01"), ymd("2018-12-31"))
+         )
 
 # Get rid of negative values
 df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
@@ -114,43 +114,55 @@ df <- depth %>%
 # Get rid of discharge unless pooling
 # df$discharge <- NULL
 
-# Make sure it's a dataframe and not a tbl_df
-df <- as.data.frame(df)
-
-# Split data into two analysis periods to reduce memory needed
+# Split data into four analysis periods to reduce memory needed
 df <- df %>%
-  filter(year < 2001) %>%
-  # mutate(time_frame = ifelse(year(solar.time) < 1997,
-  #                            1,
-  #                            2
-  #                            # ifelse(year(solar.time) > 1998,
-  #                            #        3,
-  #                            #        2)
-  # 
-  #                            )
-  #        ) %>%
-  select(DO.obs = DO_use, temp.water, site, 
-         solar.time 
-         # , time_frame
-         , light, depth, DO.sat)
+  mutate(time_frame = ifelse(between(year(solar.time), 
+                                     1993, 
+                                     1996),
+                             1,
+                             ifelse(between(year(solar.time), 
+                                            1997, 
+                                            2000),
+                                    2,
+                                    ifelse(between(year(solar.time), 
+                                                   2008, 
+                                                   2012),
+                                           3,
+                                           4)
+                                    )
+                             )
+         ) %>%
+  select(DO.obs = filtered, temp.water, site, 
+         light, depth, DO.sat, solar.time
+         , time_frame
+         )
 
-# Create periods of 3 years and nest data
-# df_n <- df %>%
-#   filter(site == "dampierre") %>%
-#   select(-site) %>%
-#   # group_by(time_frame) %>%
-#   nest() %>%
-#   left_join(df_q %>%
-#            mutate(time_frame = ifelse(year(date) < 1997,
-#                                       1,
-#                                       2
-#                                       # ifelse(year(date) > 1998,
-#                                       #        3,
-#                                       #        2)
-#            )) %>%
-#              group_by(time_frame) %>%
-#              nest() %>%
-#              rename(data_q = data))
+# Create periods of 4–6 years and nest data
+df_n <- df %>%
+  filter(site == "dampierre") %>%
+  select(-site) %>%
+  group_by(time_frame) %>%
+  nest() %>%
+  left_join(df_q %>%
+              mutate(time_frame = ifelse(between(year(date), 
+                                                 1993, 
+                                                 1996),
+                                         1,
+                                         ifelse(between(year(date), 
+                                                        1997, 
+                                                        2000),
+                                                2,
+                                                ifelse(between(year(date), 
+                                                               2008, 
+                                                               2012),
+                                                       3,
+                                                       4)
+                                                )
+                                         )
+                     ) %>%
+             group_by(time_frame) %>%
+             nest() %>%
+             rename(data_q = data))
   
 # Configure the model -----------------------------------------------------
 # Choose a model structure
@@ -164,9 +176,6 @@ bayes_mod
 
 # Metabolism function for nested data ---------------------------------------
 met_fun <- function(data, data_q, bayes_name = bayes_mod){
-  # Get rid of NAs up front and at the back
-  # data <- na.trim(data)
-  
   # Calculate the natural-log-space centers of the discharge bins
   # These are the bins for the time frame of 
   # Use the width method as in the help file with with = 0.8 log units
@@ -200,20 +209,26 @@ met_fun <- function(data, data_q, bayes_name = bayes_mod){
 }
 
 # Run the metabolism model
-df_dam <- df %>%
-  filter(site == "dampierre") %>%
-  as.data.frame()
-mm_all <- met_fun(df, df_q)
+# df_dam <- df %>%
+#   filter(site == "dampierre",
+#          solar.time > ymd_hms("1996-12-31 23:30:00")) %>%
+#   select(-site) %>%
+#   as.data.frame()
+# df_q_dam <- df_q %>%
+#   filter(date > ymd("1996-12-31")) %>%
+#   as.data.frame()
 
+# mm_all <- met_fun(df_dam, df_q_dam)
+# plot_DO_preds(mm_all)
+# get_params(mm_all)
 # Run the metabolism model on nested data ---------------------------------
-df_n2 <- df_n %>%
-  filter(time_frame == 2) %>%
-  mutate(mm = map2(data, data_q, ~met_fun(data = .x,
+mm_all <- df_n %>%
+  transmute(mm = map2(data, data_q, ~met_fun(data = .x,
                                              data_q = .y)
                       )
          )
 
-saveRDS(df_n, "Data/metab_constrainedK_1993_1996_question")
+saveRDS(mm_all, "Data/metab_constrainedK_1993_2018")
 # Inspect the model -------------------------------------------------------
 mm <- df_n %>%
   mutate(met = map(mm, predict_metab)) %>%
@@ -225,7 +240,7 @@ ggplot(data = mm, aes(x = date,
 rh <- df_n %>%
   mutate(r = map(mm, get_fit)) %>%
   select(ends_with("Rhat"))
-
+get_fit(mm_all)
 mm <- readRDS("Data/Loire_DO/mm_2009_2011.rds")
 
 kt <- df_n %>%
@@ -237,15 +252,15 @@ plot(kt$date, kt$K600.daily)
 
 # Look at priors/posteriors
 plot_distribs(bayes_specs, "K600_daily_lnQ")
-plot_distribs(get_specs(mm), "GPP_daily")
-get_specs(mm)
+plot_distribs(mm_all, "K600_daily")
+get_specs(mm_all)
 # Daily metabolism predictions
 predict_metab(mm)
-plot_metab_preds(mm)
+plot_metab_preds(mm_all)
 get_specs(mm)
 get_params(mm)
 plot_DO_preds(mm)
-plot(get_params(mm)$K600.daily, predict_metab(mm)$ER)
+plot(get_params(mm_all)$K600.daily, predict_metab(mm_all)$ER)
 plot(get_params(mm)$date, get_params(mm)$K600.daily)
 head(predict_DO(mm))
 get

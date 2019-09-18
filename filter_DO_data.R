@@ -23,7 +23,7 @@ df <- readRDS("Data/all_DO_data")
 # Split into the two periods 1993-2000 and 2008-2018
 # rename DO_obs for observed values
 df_n <- df %>%
-  filter(var == "DO") %>%
+  dplyr::filter(var == "DO") %>%
   select(site, datetime, value) %>%
   rename(DO_obs = value) %>%
   mutate(period = ifelse(between(datetime,
@@ -43,18 +43,27 @@ rm(df)
 # Can prescribe the trend for the anomaly decomposition (default 7 days),
 # the probability limit for delta_DO for detecting "bad" jumps (default 0.95),
 # the multiplier for delta_DO to detect the jump (default 1.5)
-# also a minimum threshold for expected DO (default 1.5)
+# also a minimum threshold for expected DO (default 1)
 clean_fun <- function(data,
                       trend = "7 days",
                       prob = 0.95,
                       mult = 1.5,
                       minDO = 1){
   # Order data
-  data <- data[with(data, order(datetime)),]
+  data <- data[with(data, order(datetime)), ]
+  # Create hourly time series 
+  hr_ts <- data.frame(datetime = seq(floor_date(min(data$datetime), 
+                                                unit = "year"),
+                                     ceiling_date(max(data$datetime), 
+                                                  unit = "day"),
+                                     by = "hour"))
+  # Combine with data so that every hour has a data point
+  data <- right_join(data, hr_ts)
   # First subset data to get rid of NAs at the front or back end
   data <- na.trim(data)
   # Then interpolate all NAs so that there are none with Stineman method
   data$DO_int <- na_interpolation(data$DO_obs, option = "stine")
+
   # Then determine anomalies/outliers with the gesd method
   # Use a trend of 7 days to catch major anomalies more easily
   # data <- data %>%
