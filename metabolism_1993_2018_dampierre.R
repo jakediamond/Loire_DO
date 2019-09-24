@@ -55,8 +55,11 @@ df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
 # Load air temperature data and clean -------------------------------------
 # Don't need this right now
 # df_t <- readRDS("Data/Meteo/air_temp_hourly_1976_2019")
-# # Force the correct time zone
+# Force the correct time zone
 # df_t$datetime <- force_tz(df_t$datetime, "Etc/GMT+1")
+# 
+# compare <- left_join(df, df_t)
+# plot(compare$temp[1000:1500], compare$temp.water[1000:1500])
 
 # DO data load and clean --------------------------------------------------
 # Load DO data and join
@@ -77,8 +80,8 @@ df$datetime <- force_tz(df$datetime, "Etc/GMT+1")
 
 # Prepare data for stream Metabolizer -------------------------------------
 # # Calculate DO.sat, streamMetabolizer calculation
-# # It's nearly identical to Florentina's calculation, so use hers
-# df$DO.sat <- calc_DO_sat(temp.water = df$temp.water,
+# # It's nearly identical to Florentina's calculation, so use hers unless NA
+# df$DO.sat_fill <- calc_DO_sat(temp.water = df$temp.water,
 #                           pressure.air = calc_air_pressure(temp.air = df$temp,
 #                                                            elevation = 118
 #                                                            )
@@ -89,7 +92,11 @@ df$DO.sat <- ifelse(df$temp.water == 0,
                      0,
                      14.652 - 0.41022 * df$temp.water + 0.007991 * 
                        df$temp.water^2 - 0.000077774 * df$temp.water^3)
-
+# Fill in gaps with 
+# df$DO.sat <- ifelse(is.na(df$DO.sat),
+#                     df$DO.sat_fill,
+#                     df$DO.sat)
+# df$DO.sat_fill 
 # Convert to solar time at Gien station
 df$solar.time <- calc_solar_time(df$datetime, longitude = 2.5)
 
@@ -115,7 +122,8 @@ df <- depth %>%
 # df$discharge <- NULL
 
 # Split data into four analysis periods to reduce memory needed
-df <- df %>%
+df2 <- df %>%
+  # drop_na(DO.sat) %>%
   mutate(time_frame = ifelse(between(year(solar.time), 
                                      1993, 
                                      1996),
@@ -126,9 +134,14 @@ df <- df %>%
                                     2,
                                     ifelse(between(year(solar.time), 
                                                    2008, 
-                                                   2012),
+                                                   2013),
                                            3,
-                                           4)
+                                           ifelse(between(year(solar.time), 
+                                                          2014, 
+                                                          2016),
+                                                  4, 
+                                                  5)
+                                           )
                                     )
                              )
          ) %>%
@@ -138,7 +151,7 @@ df <- df %>%
          )
 
 # Create periods of 4–6 years and nest data
-df_n <- df %>%
+df_n <- df2 %>%
   filter(site == "dampierre") %>%
   select(-site) %>%
   group_by(time_frame) %>%
@@ -154,9 +167,14 @@ df_n <- df %>%
                                                 2,
                                                 ifelse(between(year(date), 
                                                                2008, 
-                                                               2012),
+                                                               2013),
                                                        3,
-                                                       4)
+                                                       ifelse(between(year(date), 
+                                                                      2014, 
+                                                                      2016),
+                                                              4, 
+                                                              5)
+                                                       )
                                                 )
                                          )
                      ) %>%
@@ -208,42 +226,44 @@ met_fun <- function(data, data_q, bayes_name = bayes_mod){
         data_daily = as.data.frame(data_q))
 }
 
-# Run the metabolism model
-# df_dam <- df %>%
-#   filter(site == "dampierre",
-#          solar.time > ymd_hms("1996-12-31 23:30:00")) %>%
-#   select(-site) %>%
-#   as.data.frame()
-# df_q_dam <- df_q %>%
-#   filter(date > ymd("1996-12-31")) %>%
-#   as.data.frame()
-
-# mm_all <- met_fun(df_dam, df_q_dam)
-# plot_DO_preds(mm_all)
-# get_params(mm_all)
 # Run the metabolism model on nested data ---------------------------------
-mm_all <- df_n %>%
+mm_all_4 <- df_n %>%
+  filter(time_frame == 3) %>%
   transmute(mm = map2(data, data_q, ~met_fun(data = .x,
                                              data_q = .y)
                       )
          )
 
-saveRDS(mm_all, "Data/metab_constrainedK_1993_2018")
+saveRDS(mm_all_4, "Data/Loire_DO/metab_constrainedK_2008_2013")
 # Inspect the model -------------------------------------------------------
-mm <- df_n %>%
+mm <- mm_all_3 %>%
   mutate(met = map(mm, predict_metab)) %>%
   unnest(met)
 
 ggplot(data = mm, aes(x = date,
                       y = GPP)) + geom_point()
 
-rh <- df_n %>%
+ggplot(data = mm, aes(x = date,
+                      y = GPP)) + geom_point()
+
+mm %>%
+  mutate(year = year(date),
+         month = month(date)) %>%
+  select(year, date, GPP, ER, month) %>%
+  filter(GPP > 0, ER < 0) %>%
+  gather(flux, value, -year, -date, -month) %>%
+  group_by(year, flux) %>%
+  summarize(avg = mean(value, na.rm = T)) %>%
+  ggplot(aes(x = year, y = avg, color = flux)) + geom_point()
+
+rh <- mm_all[1:2,] %>%
   mutate(r = map(mm, get_fit)) %>%
+  unnest(r)
   select(ends_with("Rhat"))
 get_fit(mm_all)
 mm <- readRDS("Data/Loire_DO/mm_2009_2011.rds")
 
-kt <- df_n %>%
+kt <- mm_all[1:2,] %>%
   mutate(mk = map(mm, get_params)) %>%
   unnest(mk)
 plot(kt$K600.daily, kt$ER.daily)
@@ -252,7 +272,7 @@ plot(kt$date, kt$K600.daily)
 
 # Look at priors/posteriors
 plot_distribs(bayes_specs, "K600_daily_lnQ")
-plot_distribs(mm_all, "K600_daily")
+plot_distribs(mm_all[1,], "K600_daily")
 get_specs(mm_all)
 # Daily metabolism predictions
 predict_metab(mm)

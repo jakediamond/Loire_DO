@@ -166,7 +166,8 @@ dy_graphs_min_max <- list(
               useDataTimezone = TRUE) %>%
     dyAxis("y", label = "DO (mg L<sup>-1</sup>)", 
            independentTicks = TRUE,
-           valueRange = c(0, 22)),
+           valueRange = c(0, 22)) %>%
+    dyRangeSelector(),
   
   dygraph(pluck(df_dy_mm, 3, 3), 
           main = "Dampierre",
@@ -196,8 +197,7 @@ dy_graphs_min_max <- list(
               useDataTimezone = TRUE) %>%
     dyAxis("y", label = "DO (mg L<sup>-1</sup>)", 
            independentTicks = TRUE,
-           valueRange = c(0, 22)) %>%
-    dyRangeSelector()
+           valueRange = c(0, 22))
 )
 
 htmltools::browsable(htmltools::tagList(dy_graphs_min_max))

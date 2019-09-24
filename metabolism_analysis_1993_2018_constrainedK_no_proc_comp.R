@@ -1,59 +1,152 @@
 # 
-# Purpose: To analyze metabolism 1994-2018 data for Loire River
+# Purpose: To analyze metabolism 1993-2018 data for Loire River
 # Author: Jake Diamond
-# Date: August 29, 2019
+# Date: September 19, 2019
 # 
 
 # Set working directory
-setwd("Z:/Loire_DO")
+# setwd("Z:/Loire_DO")
+setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
+library(streamMetabolizer)
 library(tidyverse)
 library(lubridate)
 library(dygraphs)
 
-# Load data
-df <- readRDS("Data/Loire_DO/metab_results_1994_2018.rds")
+# Load metab data
+df <- readRDS("Data/Loire_DO/metab_results_1993_2018_constrainedK")
+df_mle <- readRDS("Data/Loire_DO/metab_mle") %>%
+  pluck("metab_daily") %>%
+  rename_at(vars(-date), function(x) paste0(x,"_mle"))
+df_unconstrain <- readRDS("Data/Loire_DO/metab_results_1994_2018.rds") %>%
+  rename_at(vars(-date), function(x) paste0(x, "_uncon"))
+# Load cleaned DO data
+df_do <- readRDS("Data/all_DO_cleaned")
 
-df %>%
+
+
+mm_no_proc <- readRDS("Data/Loire_DO/metab_constrainedK_noproc_1997_2000")
+mm_no_proc2 <- readRDS("Data/Loire_DO/metab_constrainedK_noproc_1993_1995")
+# Dataframe of all 1995-2000 metabolism estimates
+df_no_proc <- mm_no_proc[2, ] %>%
+  mutate(met = map(mm, predict_metab)) %>%
+  unnest(met) %>%
+  mutate(NPP = GPP + ER) %>%
+  left_join(mm_no_proc[2, ] %>%
+              mutate(parms = map(mm, get_params)) %>%
+              unnest(parms) %>%
+              select(date, K600.daily)) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_nop"))
+
+df_no_proc <- mm_no_proc2[1, ] %>%
+  mutate(met = map(mm, predict_metab)) %>%
+  unnest(met) %>%
+  mutate(NPP = GPP + ER) %>%
+  left_join(mm_no_proc2[1, ] %>%
+              mutate(parms = map(mm, get_params)) %>%
+              unnest(parms) %>%
+              select(date, K600.daily)) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_nop")) %>%
+  bind_rows(df_no_proc)
+
+
+
+# Summarize daily amplitude for DO data
+df_amp <- df_do %>%
+  filter(site == "dampierre") %>%
+  mutate(date = date(datetime)) %>%
+  group_by(date) %>%
+  summarize(max = max(filtered, na.rm = TRUE),
+            min = min(filtered, na.rm = TRUE),
+            amp = max - min)
+df_amp_l <- df_amp %>%
   mutate(year = year(date)) %>%
-  filter(year > 1996) %>%
-  bind_rows(predict_metab(mm) %>%
-              mutate(NPP = GPP + ER) %>%
-              left_join(get_params(mm) %>%
-                          select(date, K600.daily))) -> df
+  ungroup() %>%
+  gather(var, val, max, min, amp)
+ggplot(data = df_amp_l,
+       aes(x = val)) +
+  geom_density(aes(fill = as.factor(year)),
+               alpha = 0.2) +
+  facet_wrap(~var)
+
+# Join data
+df_all <- left_join(df, df_amp) %>%
+  left_join(df_mle) %>%
+  left_join(df_unconstrain) %>%
+  left_join(df_no_proc)
+
+(ggplot(data = df_all,
+       aes(x = GPP,
+           y = GPP_nop,
+           color = as.factor(year(date)))) +
+  geom_point() + facet_wrap(~as.factor(year(date))) +
+  geom_abline(aes(slope = 1, intercept = 0)) +
+  scale_y_continuous(limits = c(0,25)) +
+  scale_x_continuous(limits = c(0,25))) %>%
+  ggsave(plot = .,
+         filename = "Figures/To share/GPPmle_vs_GPP_con.tiff",
+         device = "tiff",
+         width = 8,
+         height = 6,
+         units = "in")
+
+(ggplot(data = df_all,
+       aes(x = amp,
+           y = GPP_nop,
+           color = as.factor(year(date)))) +
+  geom_point() + facet_wrap(~as.factor(year(date))) +
+  geom_vline(aes(xintercept = 10))) %>%
+  ggsave(plot = .,
+         filename = "Figures/To share/GPP_vs_amplitude.tiff",
+         device = "tiff",
+         width = 8,
+         height = 6,
+         units = "in")
 
 # Get data in long format
 df_l <- df %>%
   select(date, GPP, ER, NPP, K600.daily) %>%
-  mutate(ER = ifelse(ER >=0 | is.na(ER), 0, ER),
-         GPP = ifelse(GPP < 0 | is.na(GPP), 0, GPP),
+  mutate(ER = ifelse(ER >=0, 0, ER),
+         GPP = ifelse(GPP < 0, 0, GPP),
          NPP = GPP + ER,
          year = year(date),
          julian = yday(date)) %>%
   gather(flux, value, -date, -year, -julian)
 
 # Plot time series of GPP
-df %>%
+(df %>%
   mutate(GPP = ifelse(GPP < 0, 0, GPP)) %>%
   ggplot(aes(x = date)) +
-  geom_point(aes(y = ER)) +
+  geom_point(aes(y = GPP)) +
   # geom_ribbon(aes(ymin = GPP.lower,
   #                 ymax = GPP.upper),
   #             alpha = 0.5,
   #             fill = "blue") +
-  theme_classic()
+  theme_classic()) %>%
+  ggsave(plot = .,
+         filename = "Figures/To share/GPP_timeseries.tiff",
+         device = "tiff",
+         width = 8,
+         height = 6,
+         units = "in")
 
 # Plot all time series
-df_l %>%
+(df_l %>%
   ggplot(aes(x = date)) +
   geom_line(aes(y = value,
-                color = type)) +
-  facet_wrap(~type) +
-  theme_classic()
+                color = flux)) +
+  facet_wrap(~flux, scales = "free") +
+  theme_classic()) %>%
+  ggsave(plot = .,
+         filename = "Figures/To share/all_time_series.tiff",
+         device = "tiff",
+         width = 8,
+         height = 6,
+         units = "in")
 
 # Plot cumulative years
-df_l %>%
+(df_l %>%
   filter(flux %in% c("GPP", "ER", "NPP")) %>%
   group_by(flux, year) %>%
   mutate(cum = order_by(julian, cumsum(replace_na(value, 0)))) %>%
@@ -64,9 +157,15 @@ df_l %>%
   facet_wrap(~flux) + 
   scale_color_viridis_d(name = "Year") +
   theme_bw() + 
-  theme(legend.position = c(0.08, 0.73)) +
+  theme(legend.position = "right") +
   ylab(expression("Cumulative value (g"~O[2]~d^{-1}~m^{-2}*")")) +
-  xlab("Julian Day")
+  xlab("Julian Day")) %>%
+  ggsave(plot = .,
+         filename = "Figures/To share/cumulative_years.tiff",
+         device = "tiff",
+         width = 8,
+         height = 6,
+         units = "in")
 
 # Calculate cumulative GPP, ER, NPP
 df_annmag <- df_l %>%
@@ -86,9 +185,9 @@ df_annmag <- df_l %>%
   ylab(expression("Daily mean (g"~O[2]~d^{-1}~m^{-2}*")")) +
   xlab("") +
   theme_bw() +
-  scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
+  scale_x_continuous(breaks = seq(1993, 2018, 2))) %>%
   ggsave(plot = .,
-         filename = "Figures/Daily_mean_metab_new_1993_1996.tiff",
+         filename = "Figures/To share/Daily_mean_metab_constrainedK.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -108,7 +207,7 @@ df_annmag <- df_l %>%
     theme_bw() +
     scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
   ggsave(plot = .,
-         filename = "Figures/Daily_mean_summer_metab_new_1993_1996.tiff",
+         filename = "Figures/To share/Daily_mean_summer_metab_constrainedK.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -126,7 +225,7 @@ df_annmag <- df_l %>%
   theme_bw() +
   scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
   ggsave(plot = .,
-         filename = "Figures/Annual_sum_metab_new_1993_1996.tiff",
+         filename = "Figures/Annual_sum_metab_constrainedK.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -145,7 +244,7 @@ df_annmag <- df_l %>%
     theme_bw() +
     scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
   ggsave(plot = .,
-         filename = "Figures/Annual_sum_summer_metab_new_1993_1996.tiff",
+         filename = "Figures/Annual_sum_summer_metab_constrainedK.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -164,7 +263,7 @@ df_annmag <- df_l %>%
   theme_bw() +
   scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
   ggsave(plot = .,
-         filename = "Figures/k600_mean_metab_new_1993_1996.tiff",
+         filename = "Figures/k600_mean_metab_constrainedK.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -172,8 +271,8 @@ df_annmag <- df_l %>%
 
 # Get date of 50% GPP
 df_50 <- df_l %>%
-  filter(type %in% c("GPP", "ER", "NPP")) %>%
-  group_by(type, year) %>%
+  filter(flux %in% c("GPP", "ER", "NPP")) %>%
+  group_by(flux, year) %>%
   mutate(cum = order_by(julian, cumsum(replace_na(value, 0))),
          rank = cum / max(cum)) %>%
   summarize(doy_50 = nth(julian, which.min(abs(rank -
@@ -228,7 +327,7 @@ cume_fun <- function(data){
 }
 
 # Apply function to data
-df_cume <- df_cume %>%
+df_l2 <- df_cume %>%
   transmute(flux, year,
             beta = map(data, 
                        cume_fun)) %>%
@@ -245,7 +344,7 @@ gini_fun <- function(data)
 }
 
 # Gini coefficient dataframe with graph properties
-gini_data <- df_l %>%
+gini_data <- df_cume %>%
   transmute(year, flux,
             gini = map(data, 
                        gini_fun)) %>%
@@ -255,7 +354,7 @@ gini_data <- df_l %>%
   na.omit()
 
 # Plot Lorenz Curves
-p2 <- ggplot(data = df_cume) + 
+p2 <- ggplot(data = df_l2) + 
   geom_line(aes(x = t_rel,
                 y = flux_rel,
                 colour = as.factor(year))) + 
@@ -264,6 +363,7 @@ p2 <- ggplot(data = df_cume) +
   geom_abline(intercept = 0, slope = 1) +
   xlab("Cumulative fraction of time") +
   ylab("Cumulative fraction of flux magnitude") +
+  scale_color_viridis_d() +
   theme(legend.position = "bottom",
         legend.background = element_rect(
           colour = "black",
@@ -300,12 +400,21 @@ p2 <- ggplot(data = df_cume) +
 p2
 
 # Save plot
-ggsave(plot = p2, 
-       paste0("lorenz_", wyp, "_magnitude.tiff"),
+ggsave(plot = p2,
+       filename = "Figures/To share/Lorenz.tiff",
        device = "tiff",
        width = 8,
        height = 6,
        units = "in")
+
+(ggplot(data = gini_data,
+        aes(x = year,
+            y = gini,
+            color = year)) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(~flux) + 
+    scale_color_viridis_c())
 
 
 # Daily metabolism predictions
