@@ -180,10 +180,59 @@ xbrks <- pretty_dates(df$datetime, 10)
 dt_uni <- unique(df$datetime)
 xpos <- dt_uni[order(as.POSIXct(dt_uni))][floor(0.01 * length(dt_uni))]
 
+df <- df %>%
+  mutate(DOsat = ifelse(temp == 0,
+                        0,
+                        14.652 - 0.41022 * temp + 0.007991 * 
+                          temp^2 - 0.000077774 * temp^3),
+         DO_per = DO * 100/ DOsat)
+flood_sites1 <- c("Loise Feurs", "Mare Pont du diable", "Mare aval",
+                  "Vizézy amont Bullieux", "Toranche aval", "Mare Azieux")
+flood_sites2 <- c("Loise aval Poncins", "Loise Essertine en Donzy")
+df_filt <- df %>%
+  filter(!(Site %in% flood_sites1 & between(datetime, 
+                                            ymd_hm("2019-08-06 16:00"),
+                                            ymd_hm("2019-08-29 16:45"))),
+         !(Site %in% flood_sites2 & between(datetime, 
+                                            ymd_hm("2019-08-06 16:00"),
+                                            ymd_hm("2019-08-30 10:30"))),
+         !(Site == "Coise aval Montrond" & between(datetime, 
+                                                   ymd_hm("2019-08-06 16:00"),
+                                                   ymd_hm("2019-09-11 11:30"))),
+         !(Site == "Loise amont Doise Salt" & between(datetime, 
+                                                      ymd_hm("2019-07-16 00:30"),
+                                                      ymd_hm("2019-07-20 20:00"))),
+         !(Site == "Loise Essertine en Donzy" & between(datetime, 
+                                                        ymd_hm("2019-07-20 22:15"),
+                                                        ymd_hm("2019-07-23 15:30"))),
+         !(Site == "Vizézy amont Bullieux" & between(datetime, 
+                                                     ymd_hm("2019-07-08 19:00"),
+                                                     ymd_hm("2019-07-16 14:15"))),
+         !(Site == "Vizézy amont Bullieux" & between(datetime, 
+                                                     ymd_hm("2019-07-24 23:00"),
+                                                     ymd_hm("2019-08-29 15:30"))),
+         !(Site == "Toranche Pontet" & between(datetime, 
+                                               ymd_hm("2019-07-12 19:45"),
+                                               ymd_hm("2019-07-21 17:30"))),
+         !(Site == "Toranche Pontet" & between(datetime, 
+                                               ymd_hm("2019-07-23 22:45"),
+                                               ymd_hm("2019-07-29 01:00"))),
+         !(Site == "Toranche Pontet" & between(datetime, 
+                                               ymd_hm("2019-07-31 03:45"),
+                                               ymd_hm("2019-08-06 17:30"))),
+         !(Site == "Doise" & between(datetime, 
+                                     ymd_hm("2019-07-14 15:00"),
+                                     ymd_hm("2019-07-20 17:15"))),
+         !(Site == "Doise" & between(datetime, 
+                                     ymd_hm("2019-08-03 20:15"),
+                                     ymd_hm("2019-08-06 12:30")))
+         
+  )
+
 # Plot
 p <- ggplot() +
-  geom_line(data = df, aes(x = datetime,
-                  y = DO,
+  geom_line(data = df_filt, aes(x = datetime,
+                  y = DO_per,
                   color = as.factor(Watershed_order))) +
   # geom_line(data = df, aes(x = datetime,
   #               y = a + temp * b,
@@ -191,8 +240,8 @@ p <- ggplot() +
   #           linetype = "dashed") +
   scale_x_datetime(breaks = xbrks,
                    date_labels = "%d") +
-  scale_y_continuous(limits = c(-1, 12),
-                     breaks = seq(0, 12, 3),
+  scale_y_continuous(limits = c(0, 150),
+                     breaks = seq(0, 150, 50),
                      # sec.axis = sec_axis(~ (. - a) / b, 
                      #                     name = expression("Stream temperature "
                      #                                       *(degree*C))

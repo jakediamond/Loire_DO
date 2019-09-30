@@ -1,7 +1,7 @@
 # 
-# Purpose: To plot first round of DO data
+# Purpose: To headwater DO data on a map
 # Author: Jake Diamond
-# Date: July 17, 2019
+# Date: September 24, 2019
 # 
 
 # Set working directory
@@ -13,89 +13,12 @@ library(tidyverse)
 library(lubridate)
 library(readxl)
 library(ggmap)
-library(sf)
 library(scales)
-# library(ggpubr)
+library(grid)
+library(sf)
 
-# # #Set your API Key
-# 
-# 
-# # Get main satellite map
-# plot_loc <- get_map(location = c(lon = 4.223, 
-#                                  lat = 45.637), 
-#                     zoom = 11, 
-#                     maptype = "satellite")
-# 
-# # Get river data
-# riv <- st_read("Data/GIS/loire_headwater_rivers.shp")
-# riv <- st_transform(riv, crs = 102110)
-# riv <- st_transform(riv, crs = 3857)
-# plot(riv)
-# st_crs(riv)
-# library(rgdal)
-# riv <- readOGR("Data/GIS", "loire_headwater_rivers")
-# riv@data$id <- rownames(riv@data)
-# r <- fortify(riv)
-# r <- left_join(r, riv@data, by = "id")
-# 
-# # Get watershed data
-# ws <- st_read("Data/GIS/loire_headwater_subwatersheds.shp")
-# 
-# ws <- st_transform(ws, crs = 2154)
-# ws <- st_transform(ws, crs = 3857)
-# ggmap_bbox <- function(map) {
-#   if (!inherits(map, "ggmap")) stop("map must be a ggmap object")
-#   # Extract the bounding box (in lat/lon) from the ggmap to a numeric vector, 
-#   # and set the names to what sf::st_bbox expects:
-#   map_bbox <- setNames(unlist(attr(map, "bb")), 
-#                        c("ymin", "xmin", "ymax", "xmax"))
-#   
-#   # Coonvert the bbox to an sf polygon, transform it to 3857, 
-#   # and convert back to a bbox (convoluted, but it works)
-#   bbox_3857 <- st_bbox(st_transform(st_as_sfc(st_bbox(map_bbox, crs = 4326)), 3857))
-#   
-#   # Overwrite the bbox of the ggmap object with the transformed coordinates 
-#   attr(map, "bb")$ll.lat <- bbox_3857["ymin"]
-#   attr(map, "bb")$ll.lon <- bbox_3857["xmin"]
-#   attr(map, "bb")$ur.lat <- bbox_3857["ymax"]
-#   attr(map, "bb")$ur.lon <- bbox_3857["xmax"]
-#   map
-# }
-# 
-# 
-# test_map <- ggmap_bbox(plot_loc)
-# # Create a map with all of the crime locations plotted.
-# ggmap(plot_loc) +
-#   # geom_sf(data = ws, alpha = 0.2, inherit.aes = FALSE) +
-#   # geom_sf(data = riv, color = "blue", size = 1, inherit.aes = FALSE) +
-#   # geom_path(data = r,
-#   #           aes(x = long, y = lat,
-#   #               group = group),
-#   #           colour = "blue",
-#   #           size = 1) +
-#   geom_point(data = meta,
-#              aes(x = Longitude,
-#                  y = Latitude,
-#                  colour = Subwatershed),
-#              size = 3) + 
-  
-# 
-#   
-# ggmap(plot_loc) + 
-#   # geom_sf(data = riv,
-#   #         aes(color = Rang),
-#   #         inherit.aes = FALSE) + 
-#   coord_sf(crs = 3857) +
-#   theme_minimal()
-
-
-# Set ggplot theme
-th <- theme_bw() +
-  theme(
-    axis.title.x = element_blank(),
-    axis.text.x = element_text(angle = 90),
-    panel.grid = element_blank()
-  )
+# Set your API Key
+register_google(key = "AIzaSyCUFlGlYPLtIqC99Fv_xy_XabflfVG9XXM")
 
 # Load data
 # First get data path and names of files
@@ -132,83 +55,209 @@ df <- df %>%
          DO = X3) %>%
   left_join(meta)
 
-# Load point measurements
-pts <- read_excel("Data/Headwaters_DO/Field_data.xlsx") %>%
-  left_join(meta) %>%
-  rename(temp = `T (°C)`, DO = `DO (mg/L)`) %>%
-  filter(Datetime > ymd("2019-07-01"))
-
-# plot DO data
-# define limits to axes
-ylim.prim <- c(-0.5, 12)   
-ylim.sec <- c(10, 30)
-
-# Calculate the plot variables for the axes
-b <- diff(ylim.prim)/diff(ylim.sec)
-a <- b*(ylim.prim[1] - ylim.sec[1])
-
-# Get x-axis breaks
-xbrks <- pretty_dates(df$datetime, 10)
-
-# Get 1% point of x length for label
-dt_uni <- unique(df$datetime)
-xpos <- dt_uni[order(as.POSIXct(dt_uni))][floor(0.01 * length(dt_uni))]
-
-# Plot
-p <- ggplot() +
-  geom_line(data = df, aes(x = datetime,
-                  y = DO),
-            color = "black") +
-  geom_line(data = df, aes(x = datetime,
-                y = a + temp * b),
-            color = "red") +
-  geom_point(data = pts, aes(x = Datetime,
-                      y = DO),
-             color = "black",
-             size = 2) + 
-  geom_point(data = pts, aes(x = Datetime,
-                             y = a + temp * b),
-             color = "red",
-             size = 2) + 
-  scale_x_datetime(breaks = xbrks,
-                   date_labels = "%d") +
-  scale_y_continuous(limits = c(-1, 12),
-                     breaks = seq(0, 12, 3),
-                     sec.axis = sec_axis(~ (. - a) / b, 
-                                         name = expression("Stream temperature "
-                                                           *(degree*C))
-                                         )
-                     ) +
-  facet_grid(rows = vars(Subwatershed_order),
-             cols = vars(Subwatershed)) + 
-  geom_text(data = df, aes(x = ymd_hms(xpos),
-                y = -0.65,
-                label = Location,
-                hjust = "left"),
-            size = 4) +
-  # facet_wrap(~Site,
-  #            labeller = label_wrap_gen(width = 18)) + 
-  ylab(expression("DO (mg "*L^-1*")")) +
-  th +
-  theme(
-    # panel.grid.major.x = element_line(colour = "light grey", 
-    #                                           size = 1.4),
-        # strip.text.x = element_text(size = 6,
-        #                             margin = margin(0,0,0,0, "cm")),
-        # axis.text.x = element_text(size = 6),
-        strip.background.y = element_blank(),
-        strip.text.y = element_blank(),
-        axis.line.y.right = element_line(color = "red"), 
-        axis.ticks.y.right = element_line(color = "red"),
-        axis.text.y.right = element_text(color = "red"), 
-        axis.title.y.right = element_text(color = "red"))
+# Plotting function
+my_plot_fun <- function(data){
+  # define limits to axes
+  ylim.prim <- c(-0.5, 12)   
+  ylim.sec <- c(10, 30)
   
-p
+  # Calculate the plot variables for the axes
+  b <- diff(ylim.prim)/diff(ylim.sec)
+  a <- b*(ylim.prim[1] - ylim.sec[1])
+  
+  # Get x-axis breaks
+  xbrks <- pretty_dates(data$datetime, 10)
+  
+  # Get 1% point of x length for label
+  dt_uni <- unique(data$datetime)
+  xpos <- dt_uni[order(as.POSIXct(dt_uni))][floor(0.01 * length(dt_uni))]
+  
+  ggplot() +
+    geom_line(data = data, aes(x = datetime,
+                             y = DO),
+              color = "black") +
+    geom_line(data = data, aes(x = datetime,
+                             y = a + temp * b),
+              color = "red") +
+    scale_x_datetime(breaks = xbrks,
+                     date_labels = "%d") +
+    scale_y_continuous(limits = c(-1, 12),
+                       breaks = seq(0, 12, 3),
+                       sec.axis = sec_axis(~ (. - a) / b, 
+                                           name = expression("Stream temperature "
+                                                             *(degree*C))
+                       )
+    ) +
+    # geom_text(data = data, aes(x = ymd_hms(xpos),
+    #                          y = -0.65,
+    #                          label = Location,
+    #                          hjust = "left"),
+    #           size = 4) +
+    ylab(expression("DO (mg "*L^-1*")")) +
+    theme_void() #+
+    # theme(
+    #   strip.background.y = element_blank(),
+    #   strip.text.y = element_blank(),
+    #   axis.line.y.right = element_line(color = "red"), 
+    #   axis.ticks.y.right = element_line(color = "red"),
+    #   axis.text.y.right = element_text(color = "red"), 
+    #   axis.title.y.right = element_text(color = "red"))
+}
 
-# Save
-ggsave(filename = "Figures/initial_DO_timeseries_ordered_v3.png",
-       device = "png",
-       dpi = 300,
-       width = 16,
-       height = 8,
-       units = "in")
+findboxes <- function(
+  df, xcol, ycol,
+  box_padding_x, box_padding_y,
+  point_padding_x, point_padding_y,
+  xlim, ylim,
+  force = 1e-7, maxiter = 20000
+) {
+  
+  # x and y posiitons as a dataframe
+  posdf <- df[c(xcol, ycol)]
+  
+  # returnd a df where columns are points
+  boxdf <- apply(posdf, 1, function(row) {
+    xval <- row[xcol]
+    yval <- row[ycol]
+    return(c(
+      xval - box_padding_x / 2,
+      yval - box_padding_y / 2,
+      xval + box_padding_x / 2,
+      yval + box_padding_y / 2
+    ))
+  })
+  # columns are x1,y1,x2,y2
+  boxmatrix <- as.matrix(t(boxdf))
+  
+  moved <- ggrepel:::repel_boxes(
+    data_points = as.matrix(posdf),
+    point_padding_x = point_padding_x,
+    point_padding_y = point_padding_y,
+    boxes = boxmatrix,
+    xlim = xlim,
+    ylim = ylim,
+    hjust = 0.5,
+    vjust = 0.5,
+    force = force,
+    maxiter = maxiter
+  )
+  
+  finaldf <- cbind(posdf, moved)
+  names(finaldf) <- c("Longitude", "Latitude", "Longitude2", "Latitude2")
+  return(finaldf)
+}
+
+# Nest data by lat long
+df_n <- df %>%
+  nest(-Longitude,-Latitude)
+
+# Add new lat and long for repelled box
+df_n <- findboxes(df_n, xcol = 'Longitude', ycol='Latitude',
+                   box_padding_x = Reduce("-", rev(range(df_n$Longitude))) * 0.02,
+                   box_padding_y = Reduce("-", rev(range(df_n$Latitude))) * 0.04,
+                   point_padding_x = Reduce("-", rev(range(df_n$Longitude))) * 0.02,
+                   point_padding_y = Reduce("-", rev(range(df_n$Latitude))) * 0.04,
+                   force = 0.02,
+                   xlim = c(min(df_n$Longitude), max(df_n$Longitude)),
+                   ylim = c(min(df_n$Latitude), max(df_n$Latitude))) %>%
+  right_join(df_n)
+x <-select(df_n,-data)
+# Annotation function
+annotation_fun <- function(data, Latitude2, Longitude2, plot_fun) {
+  subplot <- plot_fun(data)
+  sub_grob <- inset(ggplotGrob(subplot), 
+                                xmin = Longitude2-0.02, ymin = Latitude2-0.02, 
+                                xmax = Longitude2+0.02, ymax = Latitude2+0.02)
+}
+
+# Get all insets
+subgrobs <- df_n %>% 
+  unnest() %>%
+  nest(-Latitude2, -Longitude2)  %>%
+  pmap(annotation_fun, plot_fun = my_plot_fun)
+
+# Plot data
+p + 
+  subgrobs +
+  geom_segment(data = df_n, aes(x = Longitude, y = Latitude, 
+                   xend = Longitude2, yend = Latitude2)) +
+  geom_point(data = df_n, aes(x = Longitude, y = Latitude), color = "black")
+
+
+# # Get river data
+riv <- st_read("Data/GIS/loire_headwater_rivers.shp")
+riv <- st_set_crs(riv, 2154)
+riv <- st_transform(riv, 
+                   "+proj=longlat +init=epsg:3857")
+riv <- st_transform(riv, crs = 3857)
+plot(riv)
+st_crs(riv)
+library(rgdal)
+riv <- readOGR("Data/GIS", "loire_headwater_rivers")
+riv@data$id <- rownames(riv@data)
+r <- fortify(riv)
+r <- left_join(r, riv@data, by = "id")
+#
+# # Get watershed data
+ws <- st_read("Data/GIS/loire_headwater_delineated_subwatersheds.shp")
+ws <- st_set_crs(ws, 2154)
+st_crs(ws)
+ws <- st_transform(ws, 
+                   "+proj=longlat +init=epsg:4326")
+ws <- st_transform(ws, crs = 3857)
+st_crs(ws)
+proj4string()
+
+# # Create a map with all of the crime locations plotted.
+p +
+  geom_sf(data = ws, alpha = 0.4, color = "red", inherit.aes = FALSE) +
+  # coord_sf(crs = 3857)
+  geom_sf(data = riv, color = "blue", size = 1, inherit.aes = FALSE) +
+  # geom_path(data = r,
+  #           aes(x = long, y = lat,
+  #               group = group),
+  #           colour = "blue",
+  #           size = 1) +
+  geom_point(data = meta,
+             aes(x = Longitude,
+                 y = Latitude,
+                 colour = Subwatershed),
+             size = 3) +
+
+#
+#
+ggmap(plot_loc) +
+  # geom_sf(data = riv,
+  #         aes(color = Rang),
+  #         inherit.aes = FALSE) +
+  coord_sf(crs = 3857) +
+  theme_minimal()
+
+  
+  # Define a function to fix the bbox to be in EPSG:3857
+  ggmap_bbox <- function(map) {
+    if (!inherits(map, "ggmap")) stop("map must be a ggmap object")
+    # Extract the bounding box (in lat/lon) from the ggmap to a numeric  vector, 
+    # and set the names to what sf::st_bbox expects:
+    map_bbox <- setNames(unlist(attr(map, "bb")), 
+                         c("ymin", "xmin", "ymax", "xmax"))
+    
+    # Coonvert the bbox to an sf polygon, transform it to 3857, 
+    # and convert back to a bbox (convoluted, but it works)
+    bbox_3857 <- st_bbox(st_transform(st_as_sfc(st_bbox(map_bbox, crs = 4326)), 3857))
+    
+    # Overwrite the bbox of the ggmap object with the transformed coordinates 
+    attr(map, "bb")$ll.lat <- bbox_3857["ymin"]
+    attr(map, "bb")$ll.lon <- bbox_3857["xmin"]
+    attr(map, "bb")$ur.lat <- bbox_3857["ymax"]
+    attr(map, "bb")$ur.lon <- bbox_3857["xmax"]
+    map
+  }
+  
+  # Use the function:
+  mapModified <- ggmap_bbox(plot_loc)
+  
+  ggmap(mapModified) + 
+    coord_sf(crs = st_crs(3857)) + # force the ggplot2 map to be in 3857
+    geom_sf(data = ws, alpha = 0.4, color = "red", inherit.aes = FALSE)
+  
