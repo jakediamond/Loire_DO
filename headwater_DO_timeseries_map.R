@@ -9,13 +9,13 @@
 setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
-library(tidyverse)
 library(lubridate)
 library(readxl)
 library(ggmap)
 library(scales)
 library(grid)
 library(sf)
+library(tidyverse)
 
 # Set your API Key
 register_google(key = "AIzaSyCUFlGlYPLtIqC99Fv_xy_XabflfVG9XXM")
@@ -147,21 +147,30 @@ findboxes <- function(
   return(finaldf)
 }
 
-# Nest data by lat long
+# Nest data by mean lat and long of watershed for plotting purposes
 df_n <- df %>%
-  nest(-Longitude,-Latitude)
+  group_by(Watershed) %>%
+  summarize(long_mean = mean(Longitude),
+            lat_mean = mean(Latitude)) %>%
+  right_join(df) %>%
+  ungroup() %>%
+  nest(-long_mean, -lat_mean, -Watershed)
 
-# Add new lat and long for repelled box
-df_n <- findboxes(df_n, xcol = 'Longitude', ycol='Latitude',
-                   box_padding_x = Reduce("-", rev(range(df_n$Longitude))) * 0.02,
-                   box_padding_y = Reduce("-", rev(range(df_n$Latitude))) * 0.04,
-                   point_padding_x = Reduce("-", rev(range(df_n$Longitude))) * 0.02,
-                   point_padding_y = Reduce("-", rev(range(df_n$Latitude))) * 0.04,
-                   force = 0.02,
-                   xlim = c(min(df_n$Longitude), max(df_n$Longitude)),
-                   ylim = c(min(df_n$Latitude), max(df_n$Latitude))) %>%
-  right_join(df_n)
-x <-select(df_n,-data)
+# Get locations for where the plots will be on the map
+df_n <- df_n %>%
+  mutate(coords = map(data, ~distinct(., Longitude, Latitude, .keep_all = TRUE)),
+         plot_coords = map(coords, ~findboxes(., xcol = 'Longitude', ycol='Latitude',
+                           box_padding_x = Reduce("-", rev(range(.$Longitude))) * 0.02,
+                           box_padding_y = Reduce("-", rev(range(.$Latitude))) * 0.04,
+                           point_padding_x = Reduce("-", rev(range(.$Longitude))) * 0.02,
+                           point_padding_y = Reduce("-", rev(range(.$Latitude))) * 0.04,
+                           force = 0.02,
+                           xlim = c(min(.$Longitude), max(.$Longitude)),
+                           ylim = c(min(.$Latitude), max(.$Latitude))
+                           )
+                 )
+         )
+
 # Annotation function
 annotation_fun <- function(data, Latitude2, Longitude2, plot_fun) {
   subplot <- plot_fun(data)
@@ -172,9 +181,26 @@ annotation_fun <- function(data, Latitude2, Longitude2, plot_fun) {
 
 # Get all insets
 subgrobs <- df_n %>% 
-  unnest() %>%
-  nest(-Latitude2, -Longitude2)  %>%
+  unnest(plot_coords, .preserve = c(data)) %>%
+  unnest(data) %>%
+  nest(-Latitude2, -Longitude2) %>%
   pmap(annotation_fun, plot_fun = my_plot_fun)
+
+# Get base map for each subwatershed
+df_n2 <- df_n %>%
+  group_by(Watershed) %>%
+  mutate(plot_loc = map2(long_mean, lat_mean, ~get_map(location = c(.x, .y),
+                                                       maptype = "satellite",
+                                                       zoom = 12)
+                         )
+         )
+
+ggmap(pluck(df_n2,7,1)) + subgrobs[1:3]
+
+
+
+  map(df_n$plot_loc, ggmap) + subgrobs
+
 
 # Plot data
 p + 

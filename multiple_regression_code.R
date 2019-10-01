@@ -1,32 +1,41 @@
 
-pred <- readRDS("Data/Headwaters_DO/all_wq_data_summary") %>%
-  left_join(read_xlsx("Data/Headwaters_DO/regression_data.xlsx")) %>%
-  mutate_if(is.numeric, list(~na_if(., Inf))) %>% 
-  mutate_if(is.numeric, list(~na_if(., -Inf))) %>%
-  select_if(~ !any(is.na(.)))
-
-dep <- readRDS("Data/Headwaters_DO/DO_summary")
 
 
 # Load necessary packages
 library(car)
 library(MASS)
 library(leaps)
+# Load data
+pred <- readRDS("Data/Headwaters_DO/all_wq_data_summary") %>%
+  left_join(read_xlsx("Data/Headwaters_DO/regression_data.xlsx")) %>%
+  mutate_if(is.numeric, list(~na_if(., Inf))) %>%
+  mutate_if(is.numeric, list(~na_if(., -Inf))) %>%
+  # select_if(~ !any(is.na(.))) %>%
+  left_join(readRDS("Data/Headwaters_DO/buffer_land_use_regression")) %>%
+  select_if(~ !(sum(is.na(.)) > 3))
+
+dep <- readRDS("Data/Headwaters_DO/DO_summary")
 
 # Get data into good form
 df <- dplyr::select(dep, amp, min, site = Site) %>%
-  left_join(pred)
+  left_join(pred) %>%
+  ungroup() %>%
+  dplyr::select(-site)
 # new
-df2 <- dplyr::select(df, min, temp_max, NO3_max, SC_mean,
-                     treatment_capacity, TP_max, forest, weirs) %>%
-  drop_na() %>%
+df2 <- dplyr::select(df, 
+                     -starts_with("DO_"),
+                     -ends_with("1m"),
+                     -ends_with("2m"),
+                     -ends_with("5m"),
+                     -ends_with("min"),
+                     -ends_with("max"),
+                     -ends_with("sd")) %>%
+                     # min, temp_mean) %>%
+#   drop_na() %>%
   as.data.frame()
-
-
+summary(df2)
 # Fit the full model with no transformations
-model1 <- lm(min ~ temp_max + SC_mean + NO3_max + TP_max + 
-               treatment_capacity + forest + weirs, 
-             data = df2)
+model1 <- lm(df2)
 summary(model1)
 
 # Check Assumptions
@@ -44,11 +53,11 @@ qqline(m1_resids)
 bc <- boxcox(model1)
 trans <- bc$x[which.max(bc$y)]
 
-# Transformation suggests lambda = 2, but we use -1 to round and for simplicity
-states$inv_inc <- states$Income^trans
+# Transformation suggests lambda = 0.3, but we use 0.5 to round and for simplicity
+df2$amp <- df2$amp^0.5
 
 # Run new model (don't need to transform predictor variables)
-model_trans <- lm(inv_inc ~ Sales + Education + CO2 + Pres, data = states)
+model_trans <- lm(df2)
 summary(model_trans)
 
 # Check assumptions
@@ -63,17 +72,17 @@ qqnorm(mtrans_resids)
 qqline(mtrans_resids)
 
 # Best subsets procedure
-subsets <- regsubsets(min ~ temp_mean + NO3_mean + forest + weirs, 
-                      data = df2, nbest = 1)
+subsets <- regsubsets(df$amp ~ ., 
+                      data = df2, nvmax = 4)
 summary(subsets)
 
 # Best subsets are E, SE, ECP, and SECP
-subs <- list(lm(inv_inc ~ Education, data = states),
-             lm(inv_inc ~ Sales +  Education, data = states),
-             lm(inv_inc ~ Education + CO2 + Pres, data = states),
-             lm(inv_inc ~ Sales + Education + CO2 + Pres, data = states)
+subs <- tibble(mods = list(lm(amp ~ SO4_mean, data = df2),
+             lm(amp ~ SO4_mean +  K_mean, data = df2),
+             lm(amp ~ PO4_mean + SO4_mean +  K_mean, data = df2),
+             lm(amp ~ temp_mean + PO4_mean + SO4_mean +  K_mean, data = df2)
              
-)
+))
 
 # Create function for calculating PRESS
 PRESS_fun <- function(mod) {
@@ -81,38 +90,42 @@ PRESS_fun <- function(mod) {
   pr <- residuals(mod)/(1 - lm.influence(mod)$hat)
   # calculate the PRESS
   PRESS <- sum(pr^2)
+  return(PRESS)
 }
 
 # Get all summary stats for best subsets
 cp <- summary(subsets)$cp
 adjr2 <- summary(subsets)$adjr2
-msres <- (summary(subsets)$rss) / nrow(states)
+msres <- (summary(subsets)$rss) / nrow(df2)
 bic <- summary(subsets)$bic
-press <- ldply(subs, PRESS_fun)
+press <- map_df(subs, ~PRESS_fun(.x))
 
 # Assumptions met, check for outliers in y-space
-mod <- lm(inv_inc ~ Education + CO2 + Pres, data = states) # Final model
-out.df <- data.frame(state = states$State, 
-                     pred = predict(mod),
+mod <- lm(amp ~ SO4_mean +  K_mean, data = df2) # Final model
+out.df <- data.frame(pred = predict(mod),
                      resid = rstudent(mod))
+plot(mod)
+summary(mod)
+
+
 
 plot(out.df$pred, out.df$resid,
      xlab = "Predicted",
      ylab = "Studentized Residuals"
 )
 with(subset(out.df, abs(resid) >= 2),
-     text(pred, resid, state, pos = 4, offset = 0.8))
+     text(pred, resid, pos = 4, offset = 0.8))
 abline(0, 0, lty = "dashed")
 abline(2, 0, col = "red")
 abline(-2, 0, col = "red")
 
 # Check for outliers in x-space
 h <- hatvalues(model_trans)
-h.df <- data.frame(state = states$State,
-                   h = h,
-                   Index = 1:51)
-levels(h.df$state) <- c(levels(h.df$state), "DC")
-h.df$state[h.df$state == "District of Columbia"] <- "DC"
+# h.df <- data.frame(
+#                    h = h,
+#                    Index = 1:51)
+# levels(h.df$state) <- c(levels(h.df$state), "DC")
+# h.df$state[h.df$state == "District of Columbia"] <- "DC"
 
 hlim <- (2 * 4 / 51)
 plot(h,
@@ -141,7 +154,7 @@ mod.nodc <- lm(inv_inc ~ Education + CO2 + Pres, data = df.nodc) #Fit model
 summary(mod.nodc)
 
 # Check for multicollinearity
-vif(model_trans)
+vif(mod)
 
 # Condition number
 states$Pres.bin <- ifelse(states$Pres == "RED", 0 , 1)
