@@ -104,49 +104,6 @@ my_plot_fun <- function(data){
     #   axis.title.y.right = element_text(color = "red"))
 }
 
-findboxes <- function(
-  df, xcol, ycol,
-  box_padding_x, box_padding_y,
-  point_padding_x, point_padding_y,
-  xlim, ylim,
-  force = 1e-7, maxiter = 20000
-) {
-  
-  # x and y posiitons as a dataframe
-  posdf <- df[c(xcol, ycol)]
-  
-  # returnd a df where columns are points
-  boxdf <- apply(posdf, 1, function(row) {
-    xval <- row[xcol]
-    yval <- row[ycol]
-    return(c(
-      xval - box_padding_x / 2,
-      yval - box_padding_y / 2,
-      xval + box_padding_x / 2,
-      yval + box_padding_y / 2
-    ))
-  })
-  # columns are x1,y1,x2,y2
-  boxmatrix <- as.matrix(t(boxdf))
-  
-  moved <- ggrepel:::repel_boxes(
-    data_points = as.matrix(posdf),
-    point_padding_x = point_padding_x,
-    point_padding_y = point_padding_y,
-    boxes = boxmatrix,
-    xlim = xlim,
-    ylim = ylim,
-    hjust = 0.5,
-    vjust = 0.5,
-    force = force,
-    maxiter = maxiter
-  )
-  
-  finaldf <- cbind(posdf, moved)
-  names(finaldf) <- c("Longitude", "Latitude", "Longitude2", "Latitude2")
-  return(finaldf)
-}
-
 # Nest data by mean lat and long of watershed for plotting purposes
 df_n <- df %>%
   group_by(Watershed) %>%
@@ -160,11 +117,11 @@ df_n <- df %>%
 df_n <- df_n %>%
   mutate(coords = map(data, ~distinct(., Longitude, Latitude, .keep_all = TRUE)),
          plot_coords = map(coords, ~findboxes(., xcol = 'Longitude', ycol='Latitude',
-                           box_padding_x = Reduce("-", rev(range(.$Longitude))) * 0.02,
-                           box_padding_y = Reduce("-", rev(range(.$Latitude))) * 0.04,
-                           point_padding_x = Reduce("-", rev(range(.$Longitude))) * 0.02,
-                           point_padding_y = Reduce("-", rev(range(.$Latitude))) * 0.04,
-                           force = 0.02,
+                           box_padding_x = Reduce("-", rev(range(.$Longitude))) * 0.3,
+                           box_padding_y = Reduce("-", rev(range(.$Latitude))) * 0.3,
+                           point_padding_x = Reduce("-", rev(range(.$Longitude))) * 0.3,
+                           point_padding_y = Reduce("-", rev(range(.$Latitude))) * 0.3,
+                           force = 0.5,
                            xlim = c(min(.$Longitude), max(.$Longitude)),
                            ylim = c(min(.$Latitude), max(.$Latitude))
                            )
@@ -175,8 +132,8 @@ df_n <- df_n %>%
 annotation_fun <- function(data, Latitude2, Longitude2, plot_fun) {
   subplot <- plot_fun(data)
   sub_grob <- inset(ggplotGrob(subplot), 
-                                xmin = Longitude2-0.02, ymin = Latitude2-0.02, 
-                                xmax = Longitude2+0.02, ymax = Latitude2+0.02)
+                                xmin = Longitude2+0.1, ymin = Latitude2-0.03, 
+                                xmax = Longitude2+0.25, ymax = Latitude2-0.01)
 }
 
 # Get all insets
@@ -195,7 +152,18 @@ df_n2 <- df_n %>%
                          )
          )
 
-ggmap(pluck(df_n2,7,1)) + subgrobs[1:3]
+ggmap(pluck(df_n2,7,1)) + subgrobs[1:3] +
+  geom_sf(data = filter(ws,
+                        str_detect(name_site, "Toranche")), 
+                        alpha = 0.8, color = "black", inherit.aes = FALSE) +
+  geom_sf(data = filter(riv,
+                        str_detect(Toponyme, "toranche")), 
+          color = "blue", size = 1, inherit.aes = FALSE) +
+  geom_segment(data = pluck(df_n2,6,1), aes(x = Longitude, y = Latitude, 
+                                            xend = Longitude2, yend = Latitude2)) +
+  geom_point(data = pluck(df_n2,6,1), aes(x = Longitude, y = Latitude), 
+             color = "black") +
+  xlab("") + ylab("")
 
 
 
