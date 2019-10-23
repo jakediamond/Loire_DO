@@ -25,7 +25,14 @@ df_1993_2000 <- mm_1993_2000[1:2, ] %>%
   left_join(mm_1993_2000[1:2, ] %>%
               mutate(parms = map(mm, get_params)) %>%
               unnest(parms) %>%
-              select(date, K600.daily))
+              select(date, K600.daily)) %>%
+  left_join(mm_1993_2000[1:2, ] %>%
+              mutate(mcmc = map(mm, get_fit)) %>%
+              mutate(err = map(mcmc, ~pluck(., 2))) %>%
+              unnest(err) %>%
+              group_by(date) %>%
+              summarize(mean_proc_err = mean(abs(err_proc_iid_mean),
+                                             na.rm = TRUE)))
 
 # Load data for 2008-2013
 mm_2008_2013 <- readRDS("Data/Loire_DO/metab_constrainedK_2008_2013")
@@ -38,7 +45,14 @@ df_2008_2013 <- mm_2008_2013[1, ] %>%
   left_join(mm_2008_2013[1, ] %>%
               mutate(parms = map(mm, get_params)) %>%
               unnest(parms) %>%
-              select(date, K600.daily))
+              select(date, K600.daily)) %>%
+  left_join(mm_2008_2013[1, ] %>%
+              mutate(mcmc = map(mm, get_fit)) %>%
+              mutate(err = map(mcmc, ~pluck(., 2))) %>%
+              unnest(err) %>%
+              group_by(date) %>%
+              summarize(mean_proc_err = mean(abs(err_proc_iid_mean),
+                                             na.rm = TRUE)))
 
 # Load data for 2012-2015
 mm_2012_2015 <- readRDS("Data/Loire_DO/metab_constrainedK_2012_2015")
@@ -51,7 +65,14 @@ df_2012_2015 <- mm_2012_2015[2, ] %>%
   left_join(mm_2012_2015[2, ] %>%
               mutate(parms = map(mm, get_params)) %>%
               unnest(parms) %>%
-              select(date, K600.daily))
+              select(date, K600.daily)) %>%
+  left_join(mm_2012_2015[2, ] %>%
+              mutate(mcmc = map(mm, get_fit)) %>%
+              mutate(err = map(mcmc, ~pluck(., 2))) %>%
+              unnest(err) %>%
+              group_by(date) %>%
+              summarize(mean_proc_err = mean(abs(err_proc_iid_mean),
+                                             na.rm = TRUE)))
 
 # Load data for 2008, 2016-2018
 mm_2008_2016_2018 <- readRDS("Data/Loire_DO/metab_constrainedK_2016_2018_also2008_weird")
@@ -64,7 +85,14 @@ df_2008_2016_2018 <- mm_2008_2016_2018[1, ] %>%
   left_join(mm_2008_2016_2018[1, ] %>%
               mutate(parms = map(mm, get_params)) %>%
               unnest(parms) %>%
-              select(date, K600.daily))
+              select(date, K600.daily)) %>%
+  left_join(mm_2008_2016_2018[1, ] %>%
+              mutate(mcmc = map(mm, get_fit)) %>%
+              mutate(err = map(mcmc, ~pluck(., 2))) %>%
+              unnest(err) %>%
+              group_by(date) %>%
+              summarize(mean_proc_err = mean(abs(err_proc_iid_mean),
+                                             na.rm = TRUE)))
 # Combine all data --------------------------------------------------------
 df <- bind_rows(df_1993_2000, df_2008_2016_2018 %>%
                   filter(year(date) != 2008), 

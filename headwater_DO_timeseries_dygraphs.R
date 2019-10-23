@@ -14,83 +14,9 @@ library(htmltools)
 library(tidyverse)
 library(lubridate)
 library(readxl)
-library(ggmap)
-library(sf)
 library(scales)
 # library(ggpubr)
 library(plotly)
-
-# # #Set your API Key
-# 
-# 
-# # Get main satellite map
-# plot_loc <- get_map(location = c(lon = 4.223, 
-#                                  lat = 45.637), 
-#                     zoom = 11, 
-#                     maptype = "satellite")
-# 
-# # Get river data
-# riv <- st_read("Data/GIS/loire_headwater_rivers.shp")
-# riv <- st_transform(riv, crs = 102110)
-# riv <- st_transform(riv, crs = 3857)
-# plot(riv)
-# st_crs(riv)
-# library(rgdal)
-# riv <- readOGR("Data/GIS", "loire_headwater_rivers")
-# riv@data$id <- rownames(riv@data)
-# r <- fortify(riv)
-# r <- left_join(r, riv@data, by = "id")
-# 
-# # Get watershed data
-# ws <- st_read("Data/GIS/loire_headwater_subwatersheds.shp")
-# 
-# ws <- st_transform(ws, crs = 2154)
-# ws <- st_transform(ws, crs = 3857)
-# ggmap_bbox <- function(map) {
-#   if (!inherits(map, "ggmap")) stop("map must be a ggmap object")
-#   # Extract the bounding box (in lat/lon) from the ggmap to a numeric vector, 
-#   # and set the names to what sf::st_bbox expects:
-#   map_bbox <- setNames(unlist(attr(map, "bb")), 
-#                        c("ymin", "xmin", "ymax", "xmax"))
-#   
-#   # Coonvert the bbox to an sf polygon, transform it to 3857, 
-#   # and convert back to a bbox (convoluted, but it works)
-#   bbox_3857 <- st_bbox(st_transform(st_as_sfc(st_bbox(map_bbox, crs = 4326)), 3857))
-#   
-#   # Overwrite the bbox of the ggmap object with the transformed coordinates 
-#   attr(map, "bb")$ll.lat <- bbox_3857["ymin"]
-#   attr(map, "bb")$ll.lon <- bbox_3857["xmin"]
-#   attr(map, "bb")$ur.lat <- bbox_3857["ymax"]
-#   attr(map, "bb")$ur.lon <- bbox_3857["xmax"]
-#   map
-# }
-# 
-# 
-# test_map <- ggmap_bbox(plot_loc)
-# # Create a map with all of the crime locations plotted.
-# ggmap(plot_loc) +
-#   # geom_sf(data = ws, alpha = 0.2, inherit.aes = FALSE) +
-#   # geom_sf(data = riv, color = "blue", size = 1, inherit.aes = FALSE) +
-#   # geom_path(data = r,
-#   #           aes(x = long, y = lat,
-#   #               group = group),
-#   #           colour = "blue",
-#   #           size = 1) +
-#   geom_point(data = meta,
-#              aes(x = Longitude,
-#                  y = Latitude,
-#                  colour = Subwatershed),
-#              size = 3) + 
-  
-# 
-#   
-# ggmap(plot_loc) + 
-#   # geom_sf(data = riv,
-#   #         aes(color = Rang),
-#   #         inherit.aes = FALSE) + 
-#   coord_sf(crs = 3857) +
-#   theme_minimal()
-
 
 # Set ggplot theme
 th <- theme_bw() +
@@ -231,7 +157,7 @@ df_filt <- df %>%
 
 # Plot
 p <- ggplot() +
-  geom_line(data = df_filt, aes(x = datetime,
+  geom_line(data = df, aes(x = datetime,
                   y = DO_per,
                   color = as.factor(Watershed_order))) +
   # geom_line(data = df, aes(x = datetime,
@@ -284,21 +210,21 @@ ggsave(filename = "Figures/initial_DO_timeseries_ordered_by_watershed.png",
 
 # Interactive dygraphs
 # First need to get nest data
-# df_dy_n <- df %>%
-#   select(datetime, Subwatershed, Subwatershed_order, Site, DO, temp) %>%
-#   group_by(Subwatershed) %>%
-#   nest(.key = by_subwatershed) %>%
-#   mutate(by_subwatershed = map(by_subwatershed, ~.x %>%
-#                          group_by(Site, Subwatershed_order) %>%
-#                          nest(.key = by_site)
-#                        )
-#          )
+df_dy_n <- df %>%
+  select(datetime, Subwatershed, Subwatershed_order, Site, DO, temp) %>%
+  group_by(Subwatershed) %>%
+  nest(.key = by_subwatershed) %>%
+  mutate(by_subwatershed = map(by_subwatershed, ~.x %>%
+                         group_by(Site, Subwatershed_order) %>%
+                         nest(.key = by_site)
+                       )
+         )
 
 # First need to get data in correct timeseries format
-# df_dy <- df_dy_n %>%
-#   mutate(ts = map(by_subwatershed, "by_site") %>%
-#            map_depth(2, ~zoo::zoo(x = c(.$DO, .$temp), order.by = .$datetime)),
-#          )
+df_dy <- df_dy_n %>%
+  mutate(ts = map(by_subwatershed, "by_site") %>%
+           map_depth(2, ~zoo::zoo(x = c(.$DO, .$temp), order.by = .$datetime)),
+         )
 
 # Create a graphing function
 graph_fun <- function(data, site = "sitename") {
@@ -306,7 +232,7 @@ graph_fun <- function(data, site = "sitename") {
                  "Coise aval Montrond",
                  "Lignon aval Poncins",
                  "Mare aval")){
-  list(dygraph(data,
+  dygraph(data,
           main = site,
           width=800,height=200) %>%
     dyOptions(drawGrid = F,
@@ -321,7 +247,7 @@ graph_fun <- function(data, site = "sitename") {
            valueRange = c(0, 30), 
            independentTicks = TRUE) %>%
     dySeries("temp", axis=('y2')) %>%
-    dyRangeSelector(),
+    dyRangeSelector()
     
     
   } else {
@@ -358,11 +284,11 @@ df_n <- df %>%
          p = map2(ts, data, ~graph_fun(.x, unique(.y$Site)),
            ))
 
-# df_dy2 <- df_dy %>%
-#   mutate(p = map(by_subwatershed, "by_site") %>%
-#            map_depth(2, ~zoo::zoo(x = ., order.by = .$datetime)) %>%
-#            map_depth(2, ~graph_fun(.),
-#   ))
+df_dy2 <- df_dy %>%
+  mutate(p = map(by_subwatershed, "by_site") %>%
+           map_depth(2, ~zoo::zoo(x = ., order.by = .$datetime)) %>%
+           map_depth(2, ~graph_fun(.),
+  ))
 
 pluck(df_dy2, 4, 2)
 

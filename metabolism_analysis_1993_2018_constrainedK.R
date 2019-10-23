@@ -25,7 +25,7 @@ df_unconstrain <- readRDS("Data/Loire_DO/metab_results_1994_2018.rds") %>%
 df_do <- readRDS("Data/all_DO_cleaned")
 
 
-
+# Load data for no process error
 mm_no_proc <- readRDS("Data/Loire_DO/metab_constrainedK_noproc_1997_2000")
 
 # Dataframe of all 1995-2000 metabolism estimates
@@ -39,10 +39,6 @@ df_no_proc <- mm_no_proc[2, ] %>%
               select(date, K600.daily)) %>%
   rename_at(vars(-date), function(x) paste0(x, "_nop"))
 
-
-
-
-
 # Summarize daily amplitude for DO data
 df_amp <- df_do %>%
   filter(site == "dampierre") %>%
@@ -51,10 +47,12 @@ df_amp <- df_do %>%
   summarize(max = max(filtered, na.rm = TRUE),
             min = min(filtered, na.rm = TRUE),
             amp = max - min)
+# Get in long format
 df_amp_l <- df_amp %>%
   mutate(year = year(date)) %>%
   ungroup() %>%
   gather(var, val, max, min, amp)
+# Quick plot
 ggplot(data = df_amp_l,
        aes(x = val)) +
   geom_density(aes(fill = as.factor(year)),
@@ -67,16 +65,29 @@ df_all <- left_join(df, df_amp) %>%
   left_join(df_unconstrain) %>%
   left_join(df_no_proc)
 
+
+# Process error time series
+(ggplot(data = df,
+        aes(x = date,
+            y = mean_proc_err)) +
+    geom_point()) %>%
+  ggsave(plot = .,
+         filename = "Figures/To share/mean_proc_err.tiff",
+         device = "tiff",
+         width = 8,
+         height = 6,
+         units = "in")
+
 (ggplot(data = df_all,
-       aes(x = K600.daily,
-           y = K600.daily_nop,
+       aes(x = GPP,
+           y = GPP_nop,
            color = as.factor(year(date)))) +
   geom_point() + facet_wrap(~as.factor(year(date))) +
   geom_abline(aes(slope = 1, intercept = 0)) +
   scale_y_continuous(limits = c(0,25)) +
   scale_x_continuous(limits = c(0,25))) %>%
   ggsave(plot = .,
-         filename = "Figures/To share/GPPmle_vs_GPP_con.tiff",
+         filename = "Figures/To share/GPP_vs_GPP_nop.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -84,12 +95,12 @@ df_all <- left_join(df, df_amp) %>%
 
 (ggplot(data = df_all,
        aes(x = amp,
-           y = GPP,
+           y = GPP_nop,
            color = as.factor(year(date)))) +
   geom_point() + facet_wrap(~as.factor(year(date))) +
   geom_vline(aes(xintercept = 10))) %>%
   ggsave(plot = .,
-         filename = "Figures/To share/GPP_vs_amplitude.tiff",
+         filename = "Figures/To share/GPP_nop_vs_amplitude.tiff",
          device = "tiff",
          width = 8,
          height = 6,
