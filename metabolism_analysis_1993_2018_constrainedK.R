@@ -8,6 +8,12 @@
 # setwd("Z:/Loire_DO")
 setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
+# It's possible to calculate "final" predictions of DO by taking observed DO 
+# at each time t-1, adding the model's prediction of dO/dt at that time, then 
+# adding the process error for that timestep to get the "final" prediction at 
+# time t. (You'll need to track the timestep-specific process errors when you 
+# fit the model if you aren't already.)
+
 # Load libraries
 library(streamMetabolizer)
 library(tidyverse)
@@ -116,18 +122,47 @@ df_l <- df %>%
          julian = yday(date)) %>%
   gather(flux, value, -date, -year, -julian)
 
-# Plot time series of GPP
+# Plot time series of GPP and ER for 2008
 (df %>%
-  mutate(GPP = ifelse(GPP < 0, 0, GPP)) %>%
+    mutate(GPP = ifelse(GPP < 0, 0, GPP),
+           ER = ifelse(ER >=0, 0, ER),
+           year = year(date)) %>%
+    filter(year == 2008) %>%
   ggplot(aes(x = date)) +
-  geom_point(aes(y = GPP)) +
-  # geom_ribbon(aes(ymin = GPP.lower,
-  #                 ymax = GPP.upper),
-  #             alpha = 0.5,
-  #             fill = "blue") +
-  theme_classic()) %>%
+  geom_point(aes(y = GPP), color = "dark green") +
+    geom_point(aes(y = ER), color = "brown") +
+  geom_ribbon(aes(ymin = GPP.lower,
+                  ymax = GPP.upper),
+              alpha = 0.5,
+              fill = "dark green") +
+    geom_ribbon(aes(ymin = ER.lower,
+                    ymax = ER.upper),
+                alpha = 0.5,
+                fill = "brown") +
+  theme_bw() +
+    scale_y_continuous(limits = c(-30, 40),
+                       breaks = seq(-30, 40, 10))) %>%
   ggsave(plot = .,
-         filename = "Figures/To share/GPP_timeseries.tiff",
+         filename = "Figures/To share/GPP_timeseries_2008_compare_matt.tiff",
+         device = "tiff",
+         width = 8,
+         height = 6,
+         units = "in")
+
+# Plot time series of GPP and ER for 2008
+(df %>%
+    mutate(GPP = ifelse(GPP < 0, 0, GPP),
+           ER = ifelse(ER >=0, 0, ER),
+           year = year(date),
+           PR = GPP / abs(ER)) %>%
+    filter(year == 2008) %>%
+    ggplot(aes(x = date)) +
+    geom_point(aes(y = PR), color = "dark green") +
+    theme_bw() +
+    scale_y_continuous(limits = c(-2, 8),
+                       breaks = seq(-2, 8, 1))) %>%
+  ggsave(plot = .,
+         filename = "Figures/To share/PR_timeseries_2008_compare_matt.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -297,7 +332,7 @@ df %>%
 bv <- df %>%
   select(GPP) %>%
   zoo::zoo(order.by = df$date)
-dygraph(bv, main = "Loire à Belleville Amont") %>% 
+dygraph(bv, main = "Loire à Dampierre Amont") %>% 
   dyOptions(drawGrid = F) %>%
   dyAxis("y", label = "GPP", independentTicks = TRUE) %>%
   # dyAxis("y2", label = "SC", independentTicks = TRUE) %>%
@@ -435,3 +470,14 @@ dygraph(bv_do, main = "Loire à Dampierre") %>%
   # dyAxis("y2", label = "SC", independentTicks = TRUE) %>%
   dySeries("DO.mod", axis=('y')) %>%
   dySeries("DO.obs", axis=('y2'))
+
+
+df_l %>%
+  # mutate(GPP = ifelse(GPP < 0, 0, GPP),
+  #        ER = ifelse(ER >=0, 0, ER),
+  #        year = year(date),
+  #        PR = GPP / abs(ER)) %>%
+  ggplot() +
+  geom_histogram(aes(value, fill = as.factor(year)), alpha = 0.3) +
+  facet_wrap(~flux, scales = "free") +
+  scale_fill_viridis_d()

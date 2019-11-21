@@ -5,8 +5,8 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
 library(tidyverse)

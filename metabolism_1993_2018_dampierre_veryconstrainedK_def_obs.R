@@ -5,8 +5,8 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
 library(readxl)
@@ -52,15 +52,14 @@ df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
                                df_q$discharge.daily)
 
 
-# Load air temperature data and clean -------------------------------------
-# Don't need this right now
-# df_t <- readRDS("Data/Meteo/air_temp_hourly_1976_2019")
-# Force the correct time zone
-# df_t$datetime <- force_tz(df_t$datetime, "Etc/GMT+1")
-# 
-# compare <- left_join(df, df_t)
-# plot(compare$temp[1000:1500], compare$temp.water[1000:1500])
-
+# Load light data and clean -------------------------------------
+# Light data is in J/cm2/hr, need to convert to umol/m2/s
+df_light <- read_excel("Data/Meteo/radiation_dampierre.xlsx") %>%
+  select(site = NOM, datetime = DATE, light = GLO) %>%
+  mutate(light = light * 10000*2.1/3600,
+         datetime = ymd_h(datetime)) %>%
+  filter(!(site == "SANCERRE" & datetime > ymd_h("2010-08-25-00"))) %>%
+  select(-site)
 # DO data load and clean --------------------------------------------------
 # Load DO data and join
 df <- readRDS("Data/all_DO_cleaned") %>%
@@ -74,43 +73,32 @@ df <- readRDS("Data/all_DO_cleaned") %>%
 # Force the correct time zone
 df$datetime <- force_tz(df$datetime, "Etc/GMT+1")
 
-# Join with air temp to do barometric calculation
-# Not doing this because only needed for DO.sat, which we have good estimate
-# df <- left_join(df, df_t)
-
 # Prepare data for stream Metabolizer -------------------------------------
-# # Calculate DO.sat, streamMetabolizer calculation
-# # It's nearly identical to Florentina's calculation, so use hers unless NA
-# df$DO.sat_fill <- calc_DO_sat(temp.water = df$temp.water,
-#                           pressure.air = calc_air_pressure(temp.air = df$temp,
-#                                                            elevation = 118
-#                                                            )
-#                           )
-
 # Florentina's DO.sat calculation
 df$DO.sat <- ifelse(df$temp.water == 0,
                      0,
                      14.652 - 0.41022 * df$temp.water + 0.007991 * 
                        df$temp.water^2 - 0.000077774 * df$temp.water^3)
-# Fill in gaps with 
-# df$DO.sat <- ifelse(is.na(df$DO.sat),
-#                     df$DO.sat_fill,
-#                     df$DO.sat)
-# df$DO.sat_fill 
+
+# Combine with light
+df <- left_join(df, df_light)
+
 # Convert to solar time at Gien station
 df$solar.time <- calc_solar_time(df$datetime, longitude = 2.5)
 
-# Get rid of datetime
-df$datetime <- NULL
-
-# Caclculate light
-df$light <- calc_light(solar.time = df$solar.time,
+# Caclculate light for periods without data (and to compare)
+df$light_est <- calc_light(solar.time = df$solar.time,
                        latitude = 47.7,
                        longitude = 2.5)
-
+df <- df %>%
+  mutate(light = ifelse(is.na(light), light_est, light)) %>%
+  select(-light_est)
 # Calculate depth
 depth <- df_q %>%
   mutate(depth = 0.134 * discharge.daily^0.4125)
+
+# Get rid of datetime
+df$datetime <- NULL
 
 # Combine depth with streamMetabolizer data
 df <- depth %>%
@@ -118,30 +106,11 @@ df <- depth %>%
                mutate(date = date(solar.time))) %>%
   select(-date, -discharge.daily)
 
-# Get rid of discharge unless pooling
-# df$discharge <- NULL
-
-# Split data into four analysis periods to reduce memory needed
+# Split data into five analysis periods to reduce memory needed for each run
 df2 <- df %>%
-  # drop_na(DO.sat) %>%
-  mutate(time_frame = ifelse(between(year(solar.time), 
-                                     1993, 
-                                     1996),
-                             1,
-                             ifelse(between(year(solar.time), 
-                                            1997, 
-                                            2000),
-                                    2,
-                                    ifelse(between(year(solar.time), 
-                                                   2008, 
-                                                   2013),
-                                           3,
-                                           4
-                                           )
-                                    )
-                             )
-         ) %>%
-  select(DO.obs = filtered, temp.water, site, 
+  mutate(year = year(solar.time),
+         time_frame = as.numeric(cut(year, 5))) %>%
+  select(DO.obs = DO_use, temp.water, site, 
          light, depth, DO.sat, solar.time
          , time_frame
          )
@@ -153,35 +122,20 @@ df_n <- df2 %>%
   group_by(time_frame) %>%
   nest() %>%
   left_join(df_q %>%
-              mutate(time_frame = ifelse(between(year(date), 
-                                                 1993, 
-                                                 1996),
-                                         1,
-                                         ifelse(between(year(date), 
-                                                        1997, 
-                                                        2000),
-                                                2,
-                                                ifelse(between(year(date), 
-                                                               2008, 
-                                                               2013),
-                                                       3,
-                                                       4
-                                                       )
-                                                )
-                                         )
-                     ) %>%
-             group_by(time_frame) %>%
-             nest() %>%
-             rename(data_q = data))
+              mutate(time_frame = as.numeric(cut(year(date), 5))) %>%
+              group_by(time_frame) %>%
+              nest() %>%
+              rename(data_q = data))
   
 # Configure the model -----------------------------------------------------
 # Choose a model structure
 # We choose a Bayesian model with both observation error and process error
 # We will pool K600
 bayes_mod <- mm_name(type = 'bayes', 
-                      pool_K600 = 'binned', 
-                      err_obs_iid = TRUE, 
-                      err_proc_iid = TRUE)
+                     pool_K600 = 'binned', 
+                     err_obs_iid = TRUE, 
+                     err_proc_iid = TRUE,
+                     deficit_src = "DO_obs")
 bayes_mod
 
 # Metabolism function for nested data ---------------------------------------
@@ -196,10 +150,10 @@ met_fun <- function(data, data_q, bayes_name = bayes_mod){
   # Estimate the mean ln(k600) value for the river from O'Connor and direct 
   # measurements with floating dome
   # Theis are the hyperprior mean for k600 in log space 
-  k6 <- 0.19
+  k6 <- 0.7
   
   # Same for standard deviation, super tight prior
-  k6_sd <- 0.05
+  k6_sd <- 0.1
 
   # Set the specifications
   bayes_specs <- specs(model_name = bayes_name,
@@ -225,18 +179,16 @@ mm_all <- df_n %>%
                       )
          )
 
-saveRDS(mm_all, "Data/Loire_DO/metab_veryconstrainedK")
+saveRDS(mm_all, "Data/Loire_DO/metab_veryconstrainedK_def_obs")
 # Inspect the model -------------------------------------------------------
-mm <- mm_all_3 %>%
+mm <- mm_all %>%
   mutate(met = map(mm, predict_metab)) %>%
   unnest(met)
 
-ggplot(data = mm, aes(x = date,
+gpp <- ggplot(data = mm, aes(x = date,
                       y = GPP)) + geom_point()
-
-ggplot(data = mm, aes(x = date,
-                      y = GPP)) + geom_point()
-
+gpp
+mm_all <- readRDS("Data/Loire_DO/metab_veryconstrainedK_err_proc_gpp_true")
 mm %>%
   mutate(year = year(date),
          month = month(date)) %>%
@@ -247,14 +199,14 @@ mm %>%
   summarize(avg = mean(value, na.rm = T)) %>%
   ggplot(aes(x = year, y = avg, color = flux)) + geom_point()
 
-rh <- mm_all[1:2,] %>%
+rh <- mm_all[4,] %>%
   mutate(r = map(mm, get_fit)) %>%
   unnest(r)
   select(ends_with("Rhat"))
 get_fit(mm_all)
-mm <- readRDS("Data/Loire_DO/mm_2009_2011.rds")
 
-kt <- mm_all[1:2,] %>%
+
+kt <- mm_all %>%
   mutate(mk = map(mm, get_params)) %>%
   unnest(mk)
 plot(kt$K600.daily, kt$ER.daily)

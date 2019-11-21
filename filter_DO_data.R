@@ -5,8 +5,8 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
 library(zoo)
@@ -15,6 +15,7 @@ library(imputeTS)
 library(dygraphs)
 library(tidyverse)
 library(lubridate)
+library(furrr)
 
 # Read in all DO data
 df <- readRDS("Data/all_DO_data")
@@ -142,8 +143,8 @@ lowpass_fun <- function(data,
 # Apply functions ---------------------------------------------------------
 # Clean the data and use the lowpass filter
 df_n <- df_n %>%
-  mutate(clean = map(data, clean_fun),
-         filt = map(clean, lowpass_fun))
+  mutate(clean = future_map(data, clean_fun),
+         filt = future_map(clean, lowpass_fun))
 
 # Get all in one dataframe
 df_DO <- unnest(df_n, filt)
@@ -160,6 +161,9 @@ df_DO <- df_DO %>%
                          filtered)) %>%
   ungroup()
 
+# Reduce size
+head(df_DO)
+df_DO <- select(df_DO, -clean, -data)
 # Save data
 saveRDS(df_DO, "Data/all_DO_cleaned")
 

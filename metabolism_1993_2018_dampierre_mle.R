@@ -1,7 +1,7 @@
 # 
-# Purpose: To estimate metabolism at Dampierre in 1993-2000
+# Purpose: To estimate metabolism at Dampierre in 1993-2018
 # Author: Jake Diamond
-# Date: September 10, 2019
+# Date: November 11, 2019
 # 
 
 # Set working directory
@@ -14,8 +14,8 @@ library(lubridate)
 library(streamMetabolizer)
 library(tidyverse)
 
-# Look at what data inputs are needed for bayes model
-metab_inputs("Kmodel", "data")
+# Look at what data inputs are needed for MLE model
+metab_inputs("mle", "data")
 
 # Discharge data load and clean -----------------------------------------------------
 # Generate daily time series
@@ -130,7 +130,7 @@ df <- df %>%
          , time_frame
          )
 
-# Create periods of 4–6 years and nest data
+# Create pre-post periods and nest data
 df_n <- df %>%
   filter(site == "dampierre") %>%
   select(-site) %>%
@@ -141,15 +141,23 @@ df_n <- df %>%
               group_by(time_frame) %>%
               nest() %>%
               rename(data_q = data))
-  
+
+# Estimate K from nighttime regression
 k_test <- metab_night(
   specs(mm_name("night")), 
   data = filter(df, site == "dampierre") %>%
     select(-site, -time_frame))
-saveRDS(k_test, "Data/K600_estimates_nighttime_regression_Dampierre")
 x <- (get_params(k_test))
+x %>%
+  mutate(month = month(date)) %>%
+  filter(K600.daily > 0,
+         between(month, 6, 9)) %>%
+  summarize(mean = mean(K600.daily, na.rm = T))
 summary(x)
-plot()
+plot(x$date, x$K600.daily)
+
+# Save it
+saveRDS(k_test, "Data/K600_estimates_nighttime_regression_Dampierre")
 
 # Get O connor and dobbins estimate of K600 daily for mle
 df_d <- df_q %>%
@@ -164,8 +172,11 @@ df_d <- df_q %>%
          K600.daily = (600/s)^-0.5 * ka) %>%
   select(date, K600.daily) 
 
+summary(df_d)
+# Compare O connor dobbins to nighttime regression to 
+com <- left_join(df_d, x, by = "date")
+plot(com$K600.daily.x, com$K600.daily.y)
 
-#
 # Configure the model -----------------------------------------------------
 # Choose a model structure
 # We choose a MLE model with both observation error and process error
@@ -180,40 +191,6 @@ df_use <- df %>%
 df_d_use <- df_d %>%
   filter(date < ymd("2018-12-31"))
 
-# # Metabolism function for nested data ---------------------------------------
-# met_fun <- function(data, data_q, bayes_name = bayes_mod){
-#   # Calculate the natural-log-space centers of the discharge bins
-#   # These are the bins for the time frame of 
-#   # Use the width method as in the help file with with = 0.8 log units
-#   brks <- calc_bins(vec = log(data_q$discharge.daily),
-#                     method = "width",
-#                     width = 0.8)$bounds
-#   
-#   # Estimate the mean ln(k600) value for the river from O'Connor and direct 
-#   # measurements with floating dome
-#   # Theis are the hyperprior mean for k600 in log space 
-#   k6 <- 0.19
-#   
-#   # Same for standard deviation
-#   k6_sd <- 0.22
-# 
-#   # Set the specifications
-#   bayes_specs <- specs(model_name = bayes_name,
-#                        burnin_steps = 1000,
-#                        saved_steps = 500
-#                        , K600_lnQ_nodes_centers = brks
-#                        , K600_lnQ_nodes_meanlog = rep(k6, 
-#                                                       length(brks))
-#                        , K600_lnQ_nodes_sdlog = rep(k6_sd, 
-#                                                     length(brks))
-#   )
-# 
-#   # Do the metabolism
-#   metab(specs = bayes_specs, 
-#         data = as.data.frame(data), 
-#         data_daily = as.data.frame(data_q))
-# }
-
 # Run the metabolism model on nested data ---------------------------------
 mm_mle <- metab(specs = specs("mle"),
                 data = filter(df_use, site == "dampierre") %>%
@@ -221,10 +198,33 @@ mm_mle <- metab(specs = specs("mle"),
                 data_daily = df_d)
 
 saveRDS(mm_mle, "Data/Loire_DO/metab_mle")
+
 # Inspect the model -------------------------------------------------------
 mm <- predict_metab(mm_mle)
 
-ggplot(data = mm, aes(x = date,
+mm %>%
+  filter(GPP > 0,
+         ER < 0) %>%
+  select(-msgs.fit, -warnings, -errors, -GPP, -ER) %>%
+  mutate(period = ifelse(year(date) < 2001, 1, 2)) %>%
+  pivot_longer(cols = contains("."), 
+               names_to = c("flux", "range"),
+               names_pattern = "([[:alnum:]]+).([[:alnum:]]+)") %>%
+  pivot_wider(names_from = range, values_from = value) %>%
+  left_join(mm %>%
+              filter(GPP > 0,
+                     ER < 0) %>%
+              select(date, GPP, ER) %>%
+              pivot_longer(cols = c(GPP, ER),
+                           names_to = "flux",
+                           values_to = "value")) %>%
+  ggplot() + geom_point(aes(x = date, y = value, color = flux)) +
+  geom_ribbon(aes(x = date, ymin = lower, ymax = upper, fill = flux), alpha = 0.4)  +
+  facet_wrap(~period, scales = "free_x")
+
+ggplot(data = filter(mm,
+                     GPP > 0,
+                     ER > 0), aes(x = date,
                       y = GPP)) + geom_point()
 
 mm %>%
@@ -237,16 +237,7 @@ mm %>%
   summarize(avg = mean(value, na.rm = T)) %>%
   ggplot(aes(x = year, y = avg, color = flux)) + geom_point()
 
-rh <- mm_all[1:2,] %>%
-  mutate(r = map(mm, get_fit)) %>%
-  unnest(r)
-  select(ends_with("Rhat"))
-get_fit(mm_all)
-mm <- readRDS("Data/Loire_DO/mm_2009_2011.rds")
 
 kt <- get_params(mm_mle)
 plot(kt$K600.daily, kt$ER.daily)
 plot(kt$date, kt$K600.daily)
-
-plot_metab_preds(mm_mle)
-plot_DO_preds(mm_mle)

@@ -19,7 +19,7 @@ library(broom)
 # Load long term wq data
 df <- readRDS("Data/Headwaters_DO/all_longterm_wq_data")
 
-# Match those data
+# Bit of cleaning
 df <- df %>%
   drop_na() %>%
   rename(DOC = COD,
@@ -33,8 +33,16 @@ df <- df %>%
          month = Mois,
          day = Jour)
 
-# Just middle Loire site, join with discharge data
-df_mid <- filter(df, site_no == "04050500") %>%
+# Just middle Loire sites, join with discharge data
+df_mid <- filter(df, site_no %in% c("04048000",
+                                    "04048100",
+                                    "04049000",
+                                    "04049850",
+                                    "04050500",
+                                    "04050500",
+                                    "04050550",
+                                    "04051000"
+                                    )) %>%
   left_join(readRDS("Data/dampierre_discharge_daily"))
 
 # Data analysis -----------------------------------------------------------
@@ -53,7 +61,7 @@ df_mid <- df_mid %>%
   xlab("") +
   ylab("Parameter value")) %>%
   ggsave(.,
-         filename = "Figures/To share/Dampierre_solute_time_series.tiff",
+         filename = "Figures/To share/Dampierre_solute_time_series_all_sites.tiff",
          device = "tiff",
          dpi = 300,
          width = 30,
@@ -76,12 +84,18 @@ df_mid_clean <- df_mid %>%
     xlab("Discharge (m3/s)") +
     ylab("Parameter value")) %>%
   ggsave(.,
-         filename = "Figures/To share/Dampierre_solute_CQ.tiff",
+         filename = "Figures/To share/Dampierre_solute_CQ_all_sites.tiff",
          device = "tiff",
          dpi = 300,
          width = 30,
          height = 19.4,
          units = "cm")
+
+df_mid %>%
+  filter(solute == "PO4") %>%
+  group_by(year, solute) %>%
+  summarize(mean = mean(value, na.rm = TRUE)) %>%
+  tail()
 
 (ggplot(data = df_mid, aes(x = year, y = value)) + 
     stat_summary(fun.y = mean, geom = "point") + 
@@ -91,7 +105,7 @@ df_mid_clean <- df_mid %>%
     xlab("") +
     ylab("Parameter value")) %>%
   ggsave(.,
-         filename = "Figures/To share/Dampierre_solute_time_series_annual.tiff",
+         filename = "Figures/To share/Dampierre_solute_time_series_annual_all_sites.tiff",
          device = "tiff",
          dpi = 300,
          width = 30,
@@ -106,3 +120,15 @@ df_mid_pl <- df_mid_clean %>%
          rsq =map_dbl(glance_lm, "r.squared"),
          tidy_lm = map(mod, tidy)) %>%
   unnest(tidy_lm)
+
+
+# Quick plot of BOD vs ChlA
+df_mid_clean %>% 
+  filter(solute %in% c("DBO5", "CHLA")) %>%
+  pivot_wider(names_from = solute, values_from = value) %>%
+  ggplot(aes(x = CHLA, y = DBO5, 
+             color = as.factor(year),
+             group = year)) +
+  geom_point() +
+  # scale_color_viridis_c() +
+  geom_smooth(method = "lm")
