@@ -15,15 +15,18 @@ library(quantreg)
 library(broom)
 
 # Load metab data
-df <- readRDS("Data/Loire_DO/metab_results_1993_2018_constrainedK")
+df_met <-readRDS("Data/Loire_DO/metabolism_results_all_years_constrainedK")
 
 # Quantile regression on data by year
-reg <- df %>%
+reg <- df_met %>%
   mutate(year = year(date)) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER)) %>%
+  filter(between(month(date),5,10)) %>%
   group_by(year) %>%
   nest() %>%
   mutate(model = map(data, ~rq(ER ~ GPP, 
-                               tau = 0.7, 
+                               tau = 0.9, 
                                data = ., 
                                na.action = na.omit),
                      ),

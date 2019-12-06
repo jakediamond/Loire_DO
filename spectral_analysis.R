@@ -5,8 +5,8 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
 library(lubridate)
@@ -41,8 +41,7 @@ df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
   bind_rows(df_q) %>%
   arrange(date) %>%
   right_join(dat_seq) %>%
-  filter(between(date, ymd("1993-01-01"), ymd("2000-12-31")) |
-           between(date, ymd("2008-01-01"), ymd("2018-12-31"))
+  filter(between(date, ymd("1993-01-01"), ymd("2018-12-31"))
   )
 
 # Get rid of negative values
@@ -76,7 +75,7 @@ p_min_max <-
   theme_bw() +
   xlab("") +
   ylab("DO (mg/L)")
-
+p_min_max
 ggsave(plot = p_min_max,
        filename = "Figures/dampierre_min_max_timeseries_smooth.tiff",
          device = "tiff",
@@ -104,7 +103,7 @@ p_amp <-
   theme_bw() +
   xlab("") +
   ylab("DO (mg/L)")
-
+p_amp
 ggsave(plot = p_min_max,
        filename = "Figures/dampierre_amp_timeseries_smooth.tiff",
        device = "tiff",

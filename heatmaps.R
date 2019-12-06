@@ -47,7 +47,44 @@ df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
 df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
                                NA,
                                df_q$discharge.daily)
-df_q$period <- ifelse(year(df_q$date) < 2001, 1, 2)
+df_q <- df_q %>%
+  mutate(day = yday(date),
+         month = month(date),
+         year = year(date))
+
+# Heat map for discharge
+(ggplot(data = df_q, aes(x = year, y = day, fill = log(discharge.daily))) +
+  geom_tile() +
+  scale_fill_viridis_c(name = "",
+                       values = c(0, 0.3, 0.4, 0.5 ,1)) +
+  geom_hline(yintercept = 171) +
+  geom_hline(yintercept = 265) +
+  ggtitle(expression("log(Mean daily discharge) ("*m^3~s^{-1}*")")) +
+  theme_bw() +
+  guides(fill = guide_colourbar(barheight = 30)) +
+  scale_x_continuous(breaks = seq(1993, 2018, 5)) +
+  xlab("") +
+  ylab("Day of year")) %>%
+  ggsave(filename = "Figures/logdischarge_heatmap.tiff",
+         device = "tiff",
+         dpi = 450,
+         width = 10,
+         height = 8,
+         units = "in")
+
+# Load metabolism data
+df_met <- readRDS("Data/Loire_DO/metabolism_results_all_years_constrainedK")
+# df_met <- df_met %>%
+#   ungroup() %>%
+#   mutate(met = map(mm, predict_metab)) %>%
+#   unnest(met) %>%
+#   mutate(NPP = GPP + ER) %>%
+#   left_join(df_met %>%
+#               ungroup() %>%
+#               mutate(parms = map(mm, get_params)) %>%
+#               unnest(parms) %>%
+#               select(date, K600.daily)) %>%
+#   select(date, GPP, ER, NPP, K600.daily)
 
 # Plot raw  min max data, but filtered to 7 days
 df_sum <- df %>%
@@ -67,15 +104,51 @@ df_sum <- df %>%
 plot_func <- function(data, name) {
   ggplot(data = data, aes(x = year, y = day, fill = value)) +
     geom_tile() +
-    scale_fill_viridis_c(name = name) +
+    scale_fill_viridis_c(name = name,
+                         values = c(0, 0.3, 0.35, 
+                                    0.4, 0.45, 0.5,
+                                    0.55, 0.6, 0.65,
+                                    1)) +
     geom_hline(yintercept = 171) +
-    geom_hline(yintercept = 265)
+    geom_hline(yintercept = 265) +
+    theme_bw() +
+    scale_x_continuous(breaks = seq(1993, 2018, 5)) +
+    xlab("") +
+    ylab("Day of year")
 }
 
-df_n <- df_sum %>% 
+df_n_do <- df_sum %>% 
   group_by(type) %>% 
   nest() %>% 
   mutate(plots = map2(data, type, plot_func)) 
 
-gridExtra::grid.arrange(grobs = df_n$plots)
+gridExtra::grid.arrange(grobs = df_n_do$plots) %>%
+  ggsave(filename = "Figures/heatmaps_DO_round2.tiff",
+         device = "tiff",
+         dpi = 450,
+         width = 10,
+         height = 8,
+         units = "in")
 
+
+df_n <- df_met %>% 
+  ungroup() %>%
+  mutate(year = year(date),
+         day = yday(date),
+         GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER) %>%
+  select(-time_frame) %>%
+  pivot_longer(cols = -c(date, day, year)) %>%
+  drop_na() %>%
+  group_by(name) %>% 
+  nest() %>% 
+  mutate(plots = map2(data, name, plot_func)) 
+
+gridExtra::grid.arrange(grobs = df_n$plots) %>%
+  ggsave(filename = "Figures/heatmaps_metab_all_years.tiff",
+         device = "tiff",
+         dpi = 450,
+         width = 10,
+         height = 8,
+         units = "in")
