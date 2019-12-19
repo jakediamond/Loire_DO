@@ -16,7 +16,7 @@ library(readxl)
 library(hydrostats)
 
 # Load Q data
-# # Generate daily time series
+# Generate daily time series
 dat_seq <- data.frame(Date = seq(ymd("1993-01-01"), 
                                  ymd('2018-12-31'), 
                                  by = "days"))
@@ -43,7 +43,7 @@ df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
   distinct() %>%
   mutate(Q = ifelse(Q < 0, NA, Q),
          Date = as.POSIXct(Date))
-
+# saveRDS(df_q, "Data/Discharge/dampierre_discharge")
 # Hydrostatistics
 df_q_stat <- df_q %>%
   group_by(year(Date)) %>%
@@ -55,3 +55,5 @@ df_q_stat <- df_q %>%
   mutate(threshold = ifelse(Q < 200, 1, 0)) %>%
   group_by(year(Date)) %>%
   summarize(run = rle(df_q_stat$threshold))
+
+

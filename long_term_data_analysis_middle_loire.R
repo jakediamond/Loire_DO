@@ -13,6 +13,7 @@ library(lubridate)
 library(broom)
 library(scales)
 library(furrr)
+library(hydrostats)
 library(patchwork)
 library(xts)
 library(viridis)
@@ -22,8 +23,51 @@ library(changepoint)
 library(imputeTS)
 library(tidyverse)
 
+load("Data/Loire_DO/Loire_data_all.RData")
+df_mac <- left_join(cb1, lm1) %>%
+  # left_join(select(std, cd_OMNIDIA, nom_taxon)) %>%
+  # mutate(nom_taxon = str_trim(nom_taxon),
+  #        genus = word(nom_taxon, 1))
+  filter(support == "macrophyte")
+
+ggplot(data = df_mac,
+       aes(x = year(date_opecont),
+           y = recfu)) +
+  geom_bar(stat = "sum") +
+  facet_wrap(~cd_site)
+
+ggplot(data = filter(tabPC, cd_site %in% c("4048000", "4046800", "4045900", "4050500", "4050550"))) +
+         geom_line(aes(x = date_opecont,
+                   y = `Orthophosp`,
+                   color = as.factor(cd_site)))
+  # geom_tile(aes(x = date_opecont,
+  #               y = cd_site,
+  #               fill = `NO3-`,
+  #               color = `NO3-`),
+  #             interpolate = TRUE)
+  #             
+
+y <- filter(tabPC, cd_site %in% c("4048000", "4045900", "4050000")) %>%
+  select(val = `Orthophosp`, site = cd_site, date = date_opecont) %>%
+  pivot_wider(names_from = site, values_from = val) %>%
+  mutate(month = month(date),
+         year = year(date)) %>%
+  group_by(year, month) %>%
+  summarize_all(mean, na.rm = TRUE) %>%
+  mutate(del1 = (`4045900` - `4048000`) / 95,
+         del2 = (`4048000` - `4050000`) / 54) %>%
+  # filter(between(month, 4, 9)) %>%
+  ggplot() +
+  geom_point(aes(x = date,
+                y = del1), color = "red") + 
+  geom_point(aes(x = date,
+                y = del2)) + 
+  # geom_smooth(aes(x = date,
+  #                 y = diff)) +
+  scale_color_viridis_d() +
+  scale_y_continuous(limits = c(0, 0.4))
 # Set the plotting theme
-theme_set(theme_bw(base_size=6)+
+theme_set(theme_bw(base_size=12)+
             theme(panel.grid.major = element_blank(), 
                   panel.grid.minor = element_blank()))
 
@@ -68,7 +112,7 @@ df <- df %>%
          day = Jour)
 
 # Just middle Loire sites, join with discharge data
-df_mid <- filter(df, site_no %in% c("04048000",
+df_mid_wq <- filter(df, site_no %in% c("04048000",
                                     "04048100",
                                     "04049000",
                                     "04049850",
@@ -82,13 +126,19 @@ df_mid <- filter(df, site_no %in% c("04048000",
 # Load long term DO and metabolism data
 df_do <- readRDS("Data/all_DO_cleaned")
 df_met <- readRDS("Data/Loire_DO/metabolism_results_all_years_constrainedK")
+df_met_chin <- readRDS("Data/Loire_DO/metabolism_results_chinon_all_years_constrainedK_no_pool")
 df_met %>%
-  filter(between(date, ymd("1999-01-01"), ymd("1999-12-31"))) %>%
-  ggplot(aes(x = date, y = GPP)) + geom_point()
-plot(df_met$date, df_met$GPP)
+  filter(between(date, ymd("2009-01-01"), ymd("2009-12-31"))) %>%
+  ggplot(aes(x = date, y = GPP)) + geom_point() + stat_smooth()+
+  scale_y_continuous(limits = c(0, 25))
+left_join(df_met, df_met_chin, by = "date") %>%
+  filter(between(date, ymd("2009-01-01"), ymd("2009-12-31"))) %>%
+  ggplot(aes(x = GPP.x, y = GPP.y)) + geom_point() + stat_smooth()+
+  scale_y_continuous(limits = c(0, 25)) + geom_abline(slope =1, intercept = 0)
 # Load corbicula data
 df_cor <- read_xlsx("Data/Loire_DO/corbicula.xlsx") %>%
-  mutate(site = str_to_lower(site))
+  mutate(site = str_to_lower(site),
+         er_est = 0.01 * density)
 
 # Load discharge data
 df_q <- readRDS("Data/dampierre_discharge_daily") %>%
@@ -97,11 +147,12 @@ df_q <- readRDS("Data/dampierre_discharge_daily") %>%
 
 # Data analysis and seasonality -----------------------------------------------------------
 # Some data summaries. Change all negatives to NA
-df_mid <- df_mid %>%
+df_mid <- df_mid_wq %>%
   mutate_all(. , list(~na_if(., -1))) %>%
   mutate(NP = NO3 / PO4 * (31/14)) %>%
-  gather(solute, value, temp:NP)
-
+  pivot_longer(names_to = 'solute', values_to = "value", cols = c(temp:ChOD, NP))
+df_mid_clean <- df_mid %>%
+  filter_at(vars(discharge.daily, value), all_vars(!is.na(.)))
 # (ggplot(data = df_mid) +
 #     geom_point(aes(x = date,
 #                    y = value,
@@ -125,7 +176,8 @@ df_mid <- df_mid %>%
 # Data for plots with moving averages
 df_solutes <- df_mid %>%
   dplyr::filter(solute %in% c("BOD5", "CHLA", 
-                              "PO4", "NO3", "NP", "SPM")) %>%
+                              "PO4", "NO3", "NP", "SPM",
+                              "TP", "PheoP")) %>%
   group_by(solute, year, month) %>%
   summarize(month_mean = mean(value, na.rm = TRUE)) %>%
   ungroup() %>%
@@ -171,7 +223,6 @@ ggplot(data = df_season,
 
 # winter over summer
 df_ws <- df_solutes %>%
-  group_by() %>%
   mutate(
     season = case_when(
       month %in% 9:11 ~ "Fall",
@@ -179,8 +230,9 @@ df_ws <- df_solutes %>%
       month %in%  3:5  ~ "Spring",
       TRUE ~ "Winter")) %>%
   group_by(period, solute, season) %>%
-  summarize(seas_mn = mean(month_mean, na.rm = TRUE)) %>%
-  pivot_wider(names_from = season, values_from = seas_mn)
+  summarize(seas_mn = mean(month_mean, na.rm = TRUE),
+            seas_var = var(month_mean, na.rm = TRUE)) %>%
+  pivot_wider(names_from = season, values_from = c(seas_mn, seas_var))
 
 df_ws %>%
   mutate(ws = Winter / Summer,
@@ -267,7 +319,7 @@ chapts <- ts_dat %>%
   select(-dates)
 
 # Estimate summertime differences only
-
+df_sums <- df_mid_clean
 
 # Figure 2 plot -----------------------------------------------------------
 # Add breakpoints to solutes
@@ -477,8 +529,9 @@ df_mid_clean %>%
 
 
 # Compare metabolism to WQ -----------------------------------------------
+
 # Daily comparison
-df_all <- left_join(df_mid_clean, df_met, by = "date") %>%
+df_all <- left_join(df_met, df_mid_clean, by = "date") %>%
   left_join(df_do %>%
               filter(site == "dampierre") %>%
               mutate(date = date(datetime)) %>%
@@ -488,10 +541,13 @@ df_all <- left_join(df_mid_clean, df_met, by = "date") %>%
   )
 
 
-ggplot(df_all) + geom_point(aes(x = value,
-                                y = ER)) +
+ggplot(filter(df_all, month == 5)) + geom_point(aes(x = value,
+                                y = GPP)) +
   facet_wrap(~solute, scales = "free")
 
+ggplot(left_join(df_met, df_q)) + geom_point(aes(x = discharge.daily,
+                                                    y = GPP)) +
+  facet_wrap(~year(date))
 
 # Annual comparison
 library(ggpmisc)
@@ -562,12 +618,59 @@ df_met %>%
                label.x = 0.8, label.y = 0.1)
 
 
+# Recovery time -----------------------------------------------------------
+# Hydrostatistics
+df_q_stat <- df_q %>%
+  group_by(year(Date)) %>%
+  nest() %>%
+  mutate(ls = future_map(data, high.spells, threshold = 150)) %>%
+  unnest(ls)
+df_q_stat <- high.spell.lengths(df_q, threshold = 150) %>%
+  mutate(end_date = start.date + days(spell.length))
 
+ggplot(filter(df_q, year(Date) == 2018),
+       aes(x = Date,
+           y = Q)) + geom_point()
 
+# Function for run length encoding
+myrleid <- function(x) {
+  x <- rle(x)$lengths
+  rep(seq_along(x), times=x)
+}
+# delta df_q
+df_q_stat <- df_q %>%
+  mutate(del = Q - lag(Q),
+         date = as.Date(Date),
+         sign = sign(del),
+         run = myrleid(sign)) %>%
+  group_by(run) %>%
+  mutate(length = cumsum(run))
 
+q <- left_join(df_met, df_q_stat) %>%
+  mutate(delgpp = GPP - lag(GPP),
+         year = year(Date)) %>%
+  filter(month(Date) == 7)
 
+ggplot(left_join(df_met, df_q_stat) %>%
+         mutate(delgpp = GPP - lag(GPP),
+                year = year(Date)) %>%
+         filter(month(Date) == 7)) + geom_point(aes(x = sign,
+                                                 y = GPP,
+                                                 color = day(Date))) +
+  facet_wrap(~year) +
+  # scale_y_continuous(limits = c(0, 25)) +
+  # scale_x_continuous(limits = c(-250, 250)) +
+  scale_color_viridis_c() +
+  geom_vline(xintercept = 0)
 
-
+ggplot(left_join(df_met, df_q_stat) %>%
+         filter(month(Date) == 7)) + geom_point(aes(x = del,
+                                                    y = GPP)) +
+  # facet_wrap(~year(Date)) +
+  scale_y_continuous(limits = c(0, 25)) +
+  scale_x_continuous(limits = c(-250, 250)) +
+  geom_vline(xintercept = 0)
+# Breakpoints -------------------------------------------------------------
 library(strucchange)
 library(xts)
 df_do_ts <- filter(df_do, site == "dampierre") %>%
@@ -622,7 +725,7 @@ df_do_ts$`cut(date, breaks = "14 days")`[bp_tp$breakpoints]
 pacf((window(tp_ts, end = 283)))
 pacf((window(tp_ts, start = 284)))
 hist(tp_ts)
-d <- ts.intersect(y = tp_ts, y1 = stats::lag(tp_ts, -1))
+d <- ts.intersect(y = log(tp_ts), y1 = stats::lag(log(tp_ts), -1))
 fs <- Fstats(y ~ y1, data = d)
 plot(fs)
 lines(breakpoints(fs))
@@ -641,8 +744,8 @@ ew <- generic_ews(tp_ts,
                   logtransform = FALSE)
 
 
-chla_ts <- df_mid %>%
-  filter(solute == "CHLA") %>%
+chla_ts_dat <- df_mid %>%
+  filter(solute == "SPM") %>%
   group_by(solute, year, month) %>%
   summarize(mean = mean(value, na.rm = TRUE)) %>%
   ungroup() %>%
@@ -651,11 +754,11 @@ chla_ts <- df_mid %>%
   arrange(date) %>%
   as.data.frame()
 
-chla_ts = xts(x = chla_ts[, "mean"],
-             order.by = chla_ts[, "date"])
+chla_ts = xts(x = chla_ts_dat[, "mean"],
+             order.by = chla_ts_dat[, "date"])
 chla_ts = na_interpolation(chla_ts, option = "stine")
 chla_ts = as.ts(chla_ts)
-
+plot(chla_ts)
 fs_chla <- Fstats(chla_ts ~ 1)
 fs_chla_stats <- fs_chla$Fstats
 plot(fs_chla)
@@ -666,15 +769,17 @@ bp_chla <- breakpoints(log(chla_ts) ~ 1)
 bp_chla
 bd_chla <- breakdates(bp_chla)
 bp_ci <- confint(bp_chla)
+bp_ci
 plot(chla_ts)
 lines(bp_ci)
 coef(bp_chla)
 chla_ts_dat$date[bp_chla$breakpoints]
+chla_ts_dat$date[bp_ci$confint]
 
 pacf((window(chla_ts, end = 368)))
 pacf((window(chla_ts, start = 368)))
 
-d <- ts.intersect(y = log(chla_ts), y1 = stats::lag(log(chla_ts), -1))
+d <- ts.intersect(y = chla_ts, y1 = stats::lag(chla_ts, -1))
 fs <- Fstats(y ~ y1, data = d)
 plot(fs)
 lines(breakpoints(fs))
@@ -715,3 +820,602 @@ dy_g <- dygraph(dy_data,
 htmltools::browsable(htmltools::tagList(dy_g))
 ,
 valueRange = c(0, 130)
+
+# Metabolism graphs -------------------------------------------------------
+df_met_l <- df_met %>%
+  ungroup() %>%
+  select(-time_frame) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER) %>%
+  gather(key, value, -date) %>%
+  mutate(type_plot = recode(key,
+                            `ER` = "ER~(g~O[2]~m^{-2}~d^{-1})",
+                            `GPP` = "GPP~(g~O[2]~m^{-2}~d^{-1})",
+                            `NPP` = "NPP~(g~O[2]~m^{-2}~d^{-1})",
+                            `K600.daily` = "k[600]~(d^{-1})"))
+
+df_met_l$type_plot <- factor(df_met_l$type_plot,
+                            levels = c("GPP~(g~O[2]~m^{-2}~d^{-1})",
+                                       "ER~(g~O[2]~m^{-2}~d^{-1})",
+                                       "NPP~(g~O[2]~m^{-2}~d^{-1})",
+                                       "k[600]~(d^{-1})"))
+
+# Plot the data
+(ggplot(data = df_met_l,
+       aes(x = date,
+           y = value)) +
+  geom_point(alpha = 0.4, size = 0.8) +
+  facet_grid(rows = vars(type_plot), scales = "free_y",
+             labeller = label_parsed) + 
+  scale_x_date(date_breaks = "1 years",
+               limits = c(ymd("1993-01-01"),
+                          ymd("2018-12-31")),
+               date_labels = "%Y") +
+  theme_bw(base_size=7) +
+  theme(panel.grid.minor = element_blank()) + 
+  xlab("") +
+  ylab("")) %>%
+  ggsave(filename = "Figures/Middle_Loire/metabolism_pool_facets.png",
+         device = "png",
+         dpi = 300,
+         width = 18.4,
+         height = 9.2,
+         units = "cm")
+library(ggrepel)
+# Summer mean ER vs GPP
+(df_met %>%
+  mutate(month = month(date),
+         year = year(date),
+         GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER) %>%
+  ungroup() %>%
+  filter(between(month, 4, 10)) %>%
+  group_by(year) %>%
+  summarize(GPP_mean = mean(GPP, na.rm = TRUE),
+            GPP_sd = sd(GPP, na.rm = TRUE),
+            GPP_n= n(),
+            ER_mean = mean(ER, na.rm = TRUE),
+            ER_sd = sd(ER, na.rm = TRUE),
+            ER_n= n()) %>%
+  mutate(GPP_se = GPP_sd / sqrt(GPP_n),
+         lower.ci.GPP = GPP_mean - qt(1 - (0.05 / 2), GPP_n - 1) * GPP_se,
+         upper.ci.GPP = GPP_mean + qt(1 - (0.05 / 2), GPP_n - 1) * GPP_se,
+         ER_se = ER_sd / sqrt(ER_n),
+         lower.ci.ER = ER_mean - qt(1 - (0.05 / 2), ER_n - 1) * ER_se,
+         upper.ci.ER = ER_mean + qt(1 - (0.05 / 2), ER_n - 1) * ER_se) %>%
+  ggplot(aes(x = GPP_mean,
+             y = ER_mean,
+             color = year)) +
+  geom_point() +
+  geom_text_repel(aes(label = year)) +
+  # geom_errorbar(aes(ymax = upper.ci.ER,
+  #                   ymin = lower.ci.ER)) +
+  # geom_errorbarh(aes(xmax = upper.ci.GPP,
+  #                    xmin = lower.ci.GPP)) +
+  guides(color = FALSE) +
+  geom_abline(slope = -1, intercept = 0) +
+  theme_bw(base_size=7) +
+  theme() +
+  xlab(expression(GPP~(g~O[2]~m^{-2}~d^{-1})))+
+  ylab(expression(ER~(g~O[2]~m^{-2}~d^{-1}))) +
+  ggtitle(label = "Summer mean ER vs. GPP")) %>%
+  ggsave(filename = "Figures/Middle_Loire/summer_ER_vs_GPP.png",
+         device = "png",
+         dpi = 300,
+         width = 9,
+         height = 9,
+         units = "cm")
+
+df_summary <- df_met %>%
+  ungroup() %>%
+  dplyr::select(-time_frame) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER,
+         year = year(date),
+         month = month(date),
+         period = ifelse(year >2011, 2, 1)) %>%
+  # filter(between(month, 4, 9)) %>%
+  group_by(year) %>%
+  summarize(GPP = mean(GPP, na.rm = TRUE),
+            ER = mean(ER, na.rm = TRUE))
+
+
+  
+(df_met %>%
+  ungroup() %>%
+  dplyr::select(-time_frame) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER,
+         year = year(date),
+         month = month(date)) %>%
+  # filter(between(month, 4, 9)) %>%
+  ggplot() +
+    theme_bw(base_size = 6) +
+    theme(panel.grid.minor = element_blank()) +
+  stat_summary(aes(x = year, y = GPP),
+                   fun.y = mean, geom = "point") +
+  stat_summary(aes(x = year, y = GPP),
+               fun.y = median, geom = "point", color = "red") +
+  stat_summary(aes(x = year, y = GPP),
+               fun.data = mean_cl_boot, geom = "errorbar") + 
+  geom_smooth(data = filter(df_summary, !(year %in% c(2000, 2001, 2007, 2008))), 
+              aes(x = year, y = GPP), method = "lm",
+              alpha = 0.5) +
+  stat_poly_eq(data = filter(df_summary, !(year %in% c(2000, 2001, 2007, 2008))), 
+                             formula = y~x, 
+               aes(x = year, y = GPP, 
+                   label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               parse = TRUE,
+               eq.with.lhs = "italic(GPP[summer])~`=`~",
+               label.x = 0.8, label.y = 0.55,
+               size = 2) +
+  stat_summary(aes(x = year, y = ER),
+               fun.y = mean, geom = "point") +
+  stat_summary(aes(x = year, y = ER),
+               fun.y = median, geom = "point", color = "red") +
+  stat_summary(aes(x = year, y = ER),
+               fun.data = mean_cl_boot, geom = "errorbar") +
+  geom_smooth(data = filter(df_summary, !(year %in% c(2000, 2001, 2007, 2008))), 
+              aes(x = year, y = ER), method = "lm",
+              alpha = 0.5) +
+  stat_poly_eq(data = filter(df_summary, !(year %in% c(2000, 2001, 2007, 2008))), 
+               formula = y~x, 
+               aes(x = year, y = ER, 
+                   label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               parse = TRUE,
+               eq.with.lhs = "italic(ER[summer])~`=`~",
+               label.x = 0.8, label.y = 0.02,
+               size = 2) +
+  geom_hline(yintercept = 0) +
+  scale_x_continuous(breaks = seq(1994, 2018, 2)) +
+  xlab("") +
+  ylab(expression(flux~(g~O[2]~m^{-2}~d^{-1})))) %>%
+  ggsave(filename = "Figures/Middle_Loire/annual_flux_change.png",
+         device = "png",
+         dpi = 300,
+         width = 9,
+         height = 6,
+         units = "cm")
+  
+# Overall Plot ------------------------------------------------------------
+
+
+
+# Overall plot
+p_q <- ggplot(data = df_q %>%
+                group_by(year(Date), month(Date)) %>%
+                summarize(med_q = median(Q, na.rm = FALSE)) %>%
+                mutate(date = ymd(paste(`year(Date)`,
+                                        `month(Date)`,
+                                        "01",
+                                        sep = "-"))),
+              aes(x = date,
+                  y = med_q)) + 
+  scale_x_date(limits = c(ymd("1994-10-01"), ymd("2020-01-01")),
+               breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"), 
+                            "5 years"),
+               labels = date_format("%Y")) +
+  scale_colour_viridis(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12),
+                       labels = c(10,11,12,1,2,3,4,5,6,7,8,9)) +
+  guides(color = guide_colorbar(title = "Month",
+                                title.position = "top",
+                                direction = "horizontal",
+                                frame.colour = "black",
+                                barwidth = 6,
+                                barheight = 0.5)) +
+  theme(axis.title.x = element_blank(),
+        panel.grid.major = element_line(color = "grey"),
+        axis.ticks.x = element_line()) +
+  xlab("") +
+  ylab(expression("Mean daily discharge ("*m^3~s^{-1}*")"))
+p_q
+
+
+df_send <- left_join(df_met, df_q, by = "date") %>%
+  left_join(df_mid_wq %>%
+              mutate_all(. , list(~na_if(., -1))) %>%
+              mutate(NP = NO3 / PO4 * (31/14))) %>%
+  left_join(read_excel("Data/Meteo/radiation_dampierre.xlsx") %>%
+              select(site = NOM, datetime = DATE, light = GLO) %>%
+              mutate(light = ifelse(is.na(light), 0,
+                                    light * 10000*2.1/3600),
+                     datetime = ymd_h(datetime),
+                     date = date(datetime)) %>%
+              filter(!(site == "SANCERRE" & datetime > ymd_h("2010-08-25-00"))) %>%
+              select(-site) %>%
+              group_by(date) %>%
+              filter(light > 0) %>%
+              summarize(med_light = median(light, na.rm = TRUE),
+                        max_light = max(light, na.rm = TRUE)))
+saveRDS(df_send, file = "Data/Loire_DO/all_data")
+plot(df_send$med_light, df_send$GPP)
+
+write_excel_csv(df_send, "Data/Loire_DO/all_data.csv")
+
+
+# Time series decomposition -----------------------------------------------
+# Time series analysis
+gpp_ts <- df_met %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER) %>%
+  ungroup() %>%
+  as.data.frame() %>%
+  na_interpolation(., option = "stine") %>%
+  as.data.frame()
+gpp_ts <- ts(gpp_ts$GPP, frequency = 365)
+stl_gpp = stl(gpp_ts, "periodic")
+seasonal_stl_gpp   <- stl_gpp$time.series[,1]
+trend_stl_gpp     <- stl_gpp$time.series[,2]
+random_stl_gpp  <- stl_gpp$time.series[,3]
+
+plot(gpp_ts)
+plot(as.ts(seasonal_stl_gpp))
+plot(trend_stl_gpp)
+abline(a = 4.5, b = -0.04)
+plot(random_stl_gpp)
+plot(stl_gpp)
+
+summary(lm(trend_stl_gpp ~ index(seasonal_stl_gpp)))
+
+
+# Discharge
+q_ts <- df_q %>%
+  dplyr::filter(between(date, ymd("1993-01-01"),
+                        ymd("2018-12-31"))) %>%
+  right_join(ungroup(df_met) %>%
+               dplyr::select(date)) %>%
+  ungroup() %>%
+  dplyr::select(discharge.daily) %>%
+  as.data.frame() %>%
+  na_interpolation(., option = "stine") %>%
+  as.data.frame()
+q_ts <- ts(q_ts[,1], frequency = 365)
+stl_q <- stl(q_ts, "periodic")
+seasonal_stl_q   <- stl_q$time.series[,1]
+trend_stl_q     <- stl_q$time.series[,2]
+random_stl_q  <- stl_q$time.series[,3]
+
+plot(q_ts)
+plot(as.ts(seasonal_stl_q))
+plot(trend_stl_q)
+abline(a = 4.5, b = -0.04)
+plot(random_stl_q)
+plot(stl_q)
+
+summary(lm(trend_stl_q ~ index(seasonal_stl_q)))
+
+# Get GPP and discharge trends in one dataframe
+df_ts_p <- as.tibble(pluck(stl_q, "time.series")) %>%
+  mutate(type = "Discharge",
+         time = dplyr::row_number(),
+         seasonal_scale = scale(seasonal),
+         remainder_scale = scale(remainder),
+         trend_scale = scale(trend)) %>%
+  bind_rows(as.tibble(pluck(stl_gpp, "time.series")) %>%
+              mutate(type = "GPP",
+                     time = dplyr::row_number(),
+                     seasonal_scale = scale(seasonal),
+                     remainder_scale = scale(remainder),
+                     trend_scale = scale(trend))) %>%
+  left_join(mutate(gpp_ts, time = dplyr::row_number()) %>%
+              dplyr::select(time, date)) %>%
+  pivot_longer(c(seasonal_scale, remainder_scale, trend_scale))
+
+df_ts_p_scale <- df_ts_p %>%
+  scale()
+
+(ggplot(df_ts_p,
+       aes(x = date,
+           y = value,
+           color = type)) +
+  geom_line() +
+  facet_grid(rows = vars(name), scales = "free_y") + 
+    scale_color_manual(name = "",
+                       values = c("blue",
+                                  "red")) +
+  scale_x_date(date_breaks = "1 years",
+               limits = c(ymd("1993-01-01"),
+                          ymd("2018-12-31")),
+               date_labels = "%Y") +
+    geom_hline(yintercept = 0) +
+  theme_bw(base_size=7) +
+    theme(axis.title.x = element_blank(),
+          panel.grid.minor = element_blank())) %>%
+  ggsave(filename = "Figures/Middle_Loire/decomposition_gpp_discharge.png",
+         device = "png",
+         dpi = 300,
+         height = 9.2,
+         width = 18.4,
+         units = "cm")
+
+library(trend)
+mk.test(trend_stl_gpp)
+partial.cor.trend.test(trend_stl_gpp, trend_stl_q, method="pearson")
+partial.cor.trend.test(trend_stl_gpp, trend_stl_q, method="spearman")
+
+partial.mk.test(trend_stl_gpp, trend_stl_q)
+# simpler summer analysis
+df_met_sum <- df_met %>%
+  mutate(year = year(date),
+         month = month(date),
+         season = case_when(
+           month %in% 9:11 ~ "Fall",
+           month %in%  6:8  ~ "Summer",
+           month %in%  3:5  ~ "Spring",
+           TRUE ~ "Winter"),
+         GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER))
+df_met_sum2 <- df_met_sum %>%
+  group_by(year, season) %>%
+  summarize(med_gpp = mean(GPP, na.rm = TRUE),
+            med_er = mean(ER, na.rm = TRUE)) %>%
+  filter(season == "Summer")
+summary(lm(med_er ~ year, data = df_met_sum2))
+
+(ggplot(data = filter(df_met_sum, season == "Summer"),
+        aes(x = year,
+            y = ER)) +
+    stat_summary(fun.y = mean, geom = "point") +
+    stat_summary(fun.data = mean_cl_boot, geom = "errorbar") +
+    stat_smooth(method = "lm", geom = "line"))
+
+
+
+
+
+
+
+df_met_p <- df_met_sum %>%
+  mutate(`P:R` = GPP / -ER) %>%
+  pivot_longer(names_to = "flux",
+               values_to = "value",
+               cols = c(GPP, ER, `P:R`)) %>%
+  group_by(year, month, flux) %>%
+  summarize(med = median(value, na.rm = TRUE)) %>%
+  mutate(date = ymd(paste(year,
+                          month,
+                          "01",
+                          sep = "-")))
+(ggplot(data = df_met_p,
+       aes(x = date,
+           y = med)) + 
+  theme_bw() + geom_line() +
+  scale_x_date(limits = c(ymd("1993-01-01"), ymd("2020-01-01")),
+               breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
+                            "5 years"),
+               minor_breaks = seq(ymd("1993-01-01"), ymd("2020-01-01"),
+                                  "1 years"),
+               labels = date_format("%Y")) +
+  facet_wrap(~flux, ncol = 1, scales = "free_y") + 
+  theme(axis.title.x = element_blank()) +
+  xlab("") +
+  ylab(expression(atop("Flux", "(mg"~O[2]~m^2*d^{-1}*")")))) %>%
+  ggsave(filename = "Figures/Middle_Loire/metab_monthly_median.png",
+         device = "png",
+         width = 6,
+         height = 6,
+         units = "in",
+         dpi = 300)
+  
+
+
+# Discharge/GPP example plots ---------------------------------------------
+# define limits to axes
+ylim.prim <- c(0, 20)   
+ylim.sec <- c(0, 2000)
+
+# Calculate the plot variables for the axes
+b <- diff(ylim.prim)/diff(ylim.sec)
+a <- b*(ylim.prim[1] - ylim.sec[1])
+
+# year to plot
+for(i in 1993:2018){
+yr <- i
+(ggplot() +
+  geom_line(data = filter(df_met, between(date,
+                                        ymd(paste0(yr,"-01-01")),
+                                        ymd(paste0(yr,"-12-31")))), 
+            aes(x = date,
+                y = GPP),
+            color = "black") +
+  geom_line(data = filter(df_q, between(date,
+                                        ymd(paste0(yr,"-01-01")),
+                                        ymd(paste0(yr,"-12-31")))), 
+            aes(x = date,
+                y = a + discharge.daily * b),
+            color = "blue") +
+  scale_x_date(date_breaks = "1 month",
+               limits = c(ymd(paste0(yr,"-01-01")),
+                          ymd(paste0(yr,"-12-31"))),
+               date_labels = "%m") +
+  theme_bw(base_size=7) +
+  theme(panel.grid.minor = element_blank(),
+        axis.line.y.right = element_line(color = "blue"), 
+        axis.ticks.y.right = element_line(color = "blue"),
+        axis.text.y.right = element_text(color = "blue"), 
+        axis.title.y.right = element_text(color = "blue")) +
+  scale_y_continuous(limits = c(0, 20),
+                     breaks = seq(0, 20, 5),
+                     sec.axis = sec_axis(~ (. - a) / b, 
+                                         name = expression("Mean daily discharge ("*m^3~s^{-1}*")")
+                     )
+  ) +
+  ylab(expression(GPP~(g~O[2]~m^{-2}~d^{-1}))) +
+  xlab("month") +
+  ggtitle(label = yr)) %>%
+  ggsave(filename = paste0("Figures/Middle_Loire/GPP_Q_", yr, ".png"),
+         device = "png",
+         dpi = 300,
+         width = 9,
+         height = 9,
+         units = "cm")
+}
+
+
+df_solutes %>% 
+  filter(year %in% c(1997, 2011, 2017), between(month, 5, 8),
+         solute == "CHLA") %>%
+  group_by(year) %>%
+  summarize(mean = mean(month_mean))
+
+
+
+
+
+# Granger causality ER GPP ------------------------------------------------
+# Granger causality ER GPP
+df_nopool <- df_met
+library(lmtest)
+x <- grangertest(df_nopool$GPP[486:637],df_nopool$ER[486:637], order = 2)
+grangertest(df_nopool$ER[486:637],df_nopool$GPP[486:637], order = 3)
+grangertest(diff(df_nopool$GPP[486:637]),diff(df_nopool$ER[486:637]), order = 2)
+grangertest(diff(df_nopool$ER[486:637]),diff(df_nopool$GPP[486:637]), order = 2)
+grangertest(diff(df_nopool$K600.daily[486:637]), diff(df_nopool$ER[486:637]), order = 1)
+
+grangertest(diff(df_nopool$GPP[9252:9404]),diff(df_nopool$ER[9252:9404]), order = 2)
+grangertest(diff(df_nopool$ER[9252:94047]),diff(df_nopool$GPP[9252:9404]), order = 2)
+grangertest(diff(df_nopool$K600.daily[9252:9404]), diff(df_nopool$GPP[9252:9404]), order = 2)
+plot(df_nopool$GPP[1:365])
+plot(diff(df_nopool$K600.daily[1:365]))
+
+
+df_met_n <- df_met %>%
+  ungroup() %>%
+  dplyr::select(-time_frame) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER,
+         year = year(date),
+         month = month(date)) %>%
+  filter(between(month, 5, 9)) %>%
+  group_by(year) %>%
+  nest()
+library(furrr)
+# granger causality
+df_gc <- df_met_n %>%
+  mutate(gc_er_gpp = future_map(data, ~grangertest(diff(.$ER) ~ diff(.$GPP), 
+                                                   order = 1))) %>%
+  unnest(gc_er_gpp)
+
+(ggplot(data = na.omit(df_gc),
+       aes(x = year,
+           y = `Pr(>F)`)) +
+  geom_point() +
+  geom_line() +
+  theme_bw(base_size = 7) +
+  scale_x_continuous(breaks = seq(1994, 2018, 2)) +
+  xlab("") +
+  ylab(expression(ER[summer]*`~`*GPP[summer]~Granger~causality~pval))) %>%
+  ggsave(filename = "Figures/Middle_Loire/granger_causality_er_gpp.png",
+         device = "png",
+         dpi = 300,
+         width = 9,
+         height = 6,
+         units = "cm")
+
+ccf(df_nopool$GPP[486:637],-df_nopool$ER[486:637], 
+    lag.max = 3)
+x <- ccf(diff(df_nopool$GPP[486:637]),-diff(df_nopool$ER[486:637]), 
+         lag.max = 3)
+pluck(x, "acf", 4)
+# cross correlation
+df_ccf <- df_met_n %>%
+  mutate(data_trim = future_map(data, na.trim),
+         data_fill = future_map(data_trim, na.interpolation),
+         ccf_ge = future_map(data_fill, ~ccf(diff(.$GPP), diff(.$ER), 
+                                                   lag.max = 3)),
+         lag0 = future_map(ccf_ge, pluck, "acf", 4),
+         lag1 = future_map(ccf_ge, pluck, "acf", 3)) %>%
+  unnest(lag0, lag1)
+
+ggplot(data = df_ccf) +
+  geom_point(aes(x = year, y = lag0)) +
+  geom_point(aes(x = year, y = lag1), color = "red")
+
+# CCM
+library(multispatialCCM)
+df_met_clean <- df_met %>%
+  ungroup() %>%
+  dplyr::select(-time_frame) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER,
+         year = year(date),
+         month = month(date))
+
+
+Accm <- na.interpolation(na.trim(df_met_clean$GPP[(120+1095):(267+1095)]))
+Bccm <- na.interpolation(na.trim(-df_met_clean$ER[(120+1095):(267+1095)]))
+
+maxE<-5 #Maximum E to test
+#Matrix for storing output
+Emat<-matrix(nrow=maxE-1, ncol=2); colnames(Emat)<-c("A", "B")
+
+#Loop over potential E values and calculate predictive ability
+#of each process for its own dynamics
+for(E in 2:maxE) {
+  #Uses defaults of looking forward one prediction step (predstep)
+  #And using time lag intervals of one time step (tau)
+  Emat[E-1,"A"]<-SSR_pred_boot(A=Accm, E=E, predstep=1, tau=1)$rho
+  Emat[E-1,"B"]<-SSR_pred_boot(A=Bccm, E=E, predstep=1, tau=1)$rho
+}
+
+#Look at plots to find E for each process at which
+#predictive ability rho is maximized
+matplot(2:maxE, Emat, type="l", col=1:2, lty=1:2,
+        xlab="E", ylab="rho", lwd=2)
+legend("bottomleft", c("A", "B"), lty=1:2, col=1:2, lwd=2, bty="n")
+E_A<-2
+E_B<-2
+signal_A_out<-SSR_check_signal(A=Accm, E=E_A, tau=1,
+                               predsteplist=1:10)
+signal_B_out<-SSR_check_signal(A=Bccm, E=E_B, tau=1,
+                               predsteplist=1:10)
+# Run the CCM test
+#E_A and E_B are the embedding dimensions for A and B.
+#tau is the length of time steps used (default is 1)
+#iterations is the number of bootsrap iterations (default 100)
+# Does A "cause" B?
+CCM_boot_A<-CCM_boot(Accm, Bccm, E_A, tau=1, iterations=25)
+CCM_boot_B<-CCM_boot(Bccm, Accm, E_B, tau=1, iterations=25)
+ccmtest(CCM_boot_A,CCM_boot_B)
+#Plot results
+plotxlimits<-range(c(CCM_boot_A$Lobs, CCM_boot_B$Lobs))
+plot(CCM_boot_A$Lobs, CCM_boot_A$rho, type="l", col=1, lwd=2,
+     xlim=c(plotxlimits[1], plotxlimits[2]), ylim=c(0,1),
+     xlab="L", ylab="rho")
+#Add +/- 1 standard error
+matlines(CCM_boot_A$Lobs,
+         cbind(CCM_boot_A$rho-CCM_boot_A$sdevrho,
+               CCM_boot_A$rho+CCM_boot_A$sdevrho),
+         lty=3, col=1)
+#Plot "B causes A"
+lines(CCM_boot_B$Lobs, CCM_boot_B$rho, type="l", col=2, lty=2, lwd=2)
+#Add +/- 1 standard error
+matlines(CCM_boot_B$Lobs,
+         cbind(CCM_boot_B$rho-CCM_boot_B$sdevrho,
+               CCM_boot_B$rho+CCM_boot_B$sdevrho),
+         lty=3, col=2)
+
+
+
+x <- ccf(diff(df_nopool$GPP[486:637]),-diff(df_nopool$ER[486:637]), 
+         lag.max = 3)
+
+df_ccf <- df_met_n %>%
+  mutate(data_trim = future_map(data, na.trim),
+         data_fill = future_map(data_trim, na.interpolation),
+         ccf_ge = future_map(data_fill, ~ccf(diff(.$GPP), diff(.$ER), 
+                                             lag.max = 3)),
+         lag0 = future_map(ccf_ge, pluck, "acf", 4),
+         lag1 = future_map(ccf_ge, pluck, "acf", 3)) %>%
+  unnest(lag0, lag1)
+
+ggplot(data = df_ccf) +
+  geom_point(aes(x = year, y = lag0)) +
+  geom_point(aes(x = year, y = lag1), color = "red")

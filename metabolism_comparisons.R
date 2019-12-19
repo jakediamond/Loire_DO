@@ -591,7 +591,7 @@ df_l %>%
   geom_histogram(aes(value, fill = as.factor(year)), alpha = 0.3) +
   facet_wrap(~flux, scales = "free") +
   scale_fill_viridis_d()
-
+# df_nopool <- df_met
 library(lmtest)
 grangertest(diff(df_nopool$GPP[8900:9032]),diff(df_nopool$ER[8900:9032], order = 2))
 grangertest(diff(df_nopool$K600.daily[8900:9032]), diff(df_nopool$GPP[8900:9032], order = 1))
