@@ -5,8 +5,9 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+# setwd("D:/jake.diamond/Loire_DO")
 
 # Load libraries
 library(streamMetabolizer)
@@ -15,29 +16,115 @@ library(lubridate)
 library(dygraphs)
 
 # Load metab data
-df <- readRDS("Data/Loire_DO/metab_results_1993_2018_constrainedK")
-df_mle <- readRDS("Data/Loire_DO/metab_mle") %>%
-  pluck("metab_daily") %>%
-  rename_at(vars(-date), function(x) paste0(x,"_mle"))
-df_unconstrain <- readRDS("Data/Loire_DO/metab_results_1994_2018.rds") %>%
-  rename_at(vars(-date), function(x) paste0(x, "_uncon"))
-# Load cleaned DO data
-df_do <- readRDS("Data/all_DO_cleaned")
-
-
-# Load data for no process error
-mm_no_proc <- readRDS("Data/Loire_DO/metab_constrainedK_noproc_1997_2000")
-
-# Dataframe of all 1995-2000 metabolism estimates
-df_no_proc <- mm_no_proc[2, ] %>%
+df <- readRDS("Data/Loire_DO/metab_veryconstrainedK")
+# df_mle <- readRDS("Data/Loire_DO/metab_mle") %>%
+#   pluck("metab_daily") %>%
+#   rename_at(vars(-date), function(x) paste0(x,"_mle"))
+df_unconstrain <- readRDS("Data/Loire_DO/metab_unconstrainedK")
+df_gpp_err_obs <- readRDS("Data/Loire_DO/metab_veryconstrainedKerr_proc_gpp_true_def_obs")
+df_gpp_err <- readRDS("Data/Loire_DO/metab_veryconstrainedK_err_proc_gpp_true")
+df_go <- df_gpp_err_obs %>%
+  ungroup() %>%
   mutate(met = map(mm, predict_metab)) %>%
   unnest(met) %>%
   mutate(NPP = GPP + ER) %>%
-  left_join(mm_no_proc[2, ] %>%
+  left_join(df_gpp_err_obs %>%
+              ungroup() %>%
               mutate(parms = map(mm, get_params)) %>%
               unnest(parms) %>%
               select(date, K600.daily)) %>%
-  rename_at(vars(-date), function(x) paste0(x, "_nop"))
+  select(date, GPP, ER, NPP, K600.daily) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_go"))
+z<-predict_DO(pluck(df_gpp_err_obs, 2, 1))
+plot(z$solar.time[2000:2100], z$DO.obs[2000:2100])
+points(z$solar.time[2000:2100], z$DO.mod[2000:2100], col = "blue")
+points(df_proc$solar.time[1500:1600], df_proc$err_proc_iid_mean[1500:1600] +12, col = 'red')
+plot(df_proc$solar.time[1500:1600], df_proc$err_proc_iid_mean[1500:1600], col = 'red')
+df_obs <- readRDS("F:/DataLocalePerso/Jake/metab_veryconstrainedK_def_obs")
+df_obs <- df_obs %>%
+  ungroup() %>%
+  mutate(met = map(mm, predict_metab)) %>%
+  unnest(met) %>%
+  mutate(NPP = GPP + ER) %>%
+  left_join(df_obs %>%
+              ungroup() %>%
+              mutate(parms = map(mm, get_params)) %>%
+              unnest(parms) %>%
+              select(date, K600.daily)) %>%
+  select(date, GPP, ER, NPP, K600.daily) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_obs"))
+# Load cleaned DO data
+df_do <- readRDS("Data/all_DO_cleaned")
+
+df_mod <- df_gpp_err %>%
+  ungroup() %>%
+  transmute(proc_err = map(mm, predict_DO)) %>%
+  # transmute(mod = map(proc_err, ~pluck(., 5))) %>%
+  unnest()
+
+plot(df_mod$DO.obs[4000:5000], df_mod$DO.mod[4000:5000])
+abline(0,1)
+
+df_proc <- df_gpp_err_obs %>%
+  ungroup() %>%
+  transmute(proc_err = map(mm, get_fit)) %>%
+  transmute(
+    proc_err_mean = map(proc_err, ~pluck(., 2))) %>%
+  unnest() %>%
+  select(date, )
+ggplot(data = df_proc, aes(x = solar.time, y = err_proc_iid_mean)) + geom_point()
+ggplot(data = df_proc, aes(x = hour(solar.time), y = err_proc_iid_mean)) + 
+  stat_summary(fun.data = "mean_cl_boot", na.rm = T)
+x <- filter(df_proc, err_proc_iid_mean > 10)
+plot(df_proc$solar.time[500:600], df_proc$err_proc_iid_mean[500:600])
+plot(df_proc$solar.time[500:600], df_proc$err_proc_GPP_mean[500:600])
+plot(x$solar.time[500:505], x$err_proc_iid_mean[500:505])
+plot(x$solar.time[500:505], x$err_proc_GPP_mean[500:505])
+
+df_proc2 <- df_obs %>%
+  ungroup() %>%
+  transmute(proc_err = map(mm, get_fit)) %>%
+  transmute(
+    proc_err_mean = map(proc_err, ~pluck(., 2))) %>%
+  unnest()
+
+df_proc_gpp <- df_gpp_err %>%
+  ungroup() %>%
+  transmute(proc_err = map(mm, get_fit)) %>%
+  transmute(
+    proc_err_mean = map(proc_err, ~pluck(., 2))) %>%
+  unnest()
+
+df_comp <- left_join(df_proc, df_proc2, by = c("date", "solar.time"))
+df_comp <- left_join(df_comp, df_proc_gpp)
+plot(df_comp$solar.time[4000:5000], df_comp$err_proc_iid_mean[4000:5000] + df_comp$err_proc_GPP_mean[4000:5000] )
+plot(df_comp$err_proc_iid_mean.y, df_comp$err_proc_iid_mean+ df_comp$err_proc_GPP_mean)
+plot(df_proc2$err_proc_iid_mean[1:5000], df_proc$err_proc_iid_mean[1:5000])
+plot(df_proc$solar.time[4000:5000], df_proc2$err_proc_iid_mean[4000:5000])
+plot(df_proc2$err_proc_iid_mean[1:5000], df_proc$err_proc_iid_mean[1:5000])
+# Get data in dataframe format
+df_all <- df %>%
+  ungroup() %>%
+  mutate(met = map(mm, predict_metab)) %>%
+  unnest(met) %>%
+  mutate(NPP = GPP + ER) %>%
+  left_join(df %>%
+              ungroup() %>%
+              mutate(parms = map(mm, get_params)) %>%
+              unnest(parms) %>%
+              select(date, K600.daily)) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_con")) %>%
+  left_join(df_unconstrain %>%
+              ungroup() %>%
+              mutate(met = map(mm, predict_metab)) %>%
+              unnest(met) %>%
+              mutate(NPP = GPP + ER) %>%
+              left_join(df_unconstrain %>%
+                          ungroup() %>%
+                          mutate(parms = map(mm, get_params)) %>%
+                          unnest(parms) %>%
+                          select(date, K600.daily)) %>%
+              rename_at(vars(-date), function(x) paste0(x, "_uncon")))
 
 # Summarize daily amplitude for DO data
 df_amp <- df_do %>%
@@ -60,11 +147,19 @@ ggplot(data = df_amp_l,
   facet_wrap(~var)
 
 # Join data
-df_all <- left_join(df, df_amp) %>%
-  left_join(df_mle) %>%
-  left_join(df_unconstrain) %>%
-  left_join(df_no_proc)
+df_all <- df_all %>%
+  ungroup() %>%
+  select(date, GPP_nop, ER_nop, NPP_nop, K600.daily_nop, GPP_uncon, ER_uncon, NPP_uncon, K600.daily_uncon) 
+df_all2 <- df_all %>%
+  filter(!(is.na(GPP_uncon))) %>%
+  select(date, ends_with("uncon")) %>%
+  left_join(filter(df_all, !(is.na(GPP_nop))) %>%
+              select(date, ends_with("nop")), by = "date")
+df_all_3 <- left_join(df_all2, df_go)
+df_all_4 <- left_join(df_all_3, df_obs)
 
+df_all <- left_join(df, df_amp)
+df
 
 # Process error time series
 (ggplot(data = df,
@@ -78,16 +173,16 @@ df_all <- left_join(df, df_amp) %>%
          height = 6,
          units = "in")
 
-(ggplot(data = df_all,
-       aes(x = GPP,
-           y = GPP_nop,
-           color = as.factor(year(date)))) +
+ggplot(data = df_all_4,
+       aes(x = GPP_nop,
+           y = GPP_go,
+           color = as.factor(month(date)))) +
   geom_point() + facet_wrap(~as.factor(year(date))) +
-  geom_abline(aes(slope = 1, intercept = 0)) +
-  scale_y_continuous(limits = c(0,25)) +
-  scale_x_continuous(limits = c(0,25))) %>%
+    scale_color_viridis_d() +
+  geom_abline(aes(slope = 1, intercept = 0))
+
   ggsave(plot = .,
-         filename = "Figures/To share/GPP_vs_GPP_nop.tiff",
+         filename = "Figures/To share/GPPuncons_vs_GPPcons.tiff",
          device = "tiff",
          width = 8,
          height = 6,

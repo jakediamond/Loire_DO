@@ -6,7 +6,8 @@
 
 # Set working directory
 # setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("D:/jake.diamond/Loire_DO")
 
 # Load libraries
 library(zoo)
@@ -48,7 +49,7 @@ clean_fun <- function(data,
                       trend = "7 days",
                       prob = 0.95,
                       mult = 1.5,
-                      minDO = 1){
+                      minDO = 2){
   # Order data
   data <- data[with(data, order(datetime)), ]
   # Create hourly time series 
@@ -84,7 +85,7 @@ clean_fun <- function(data,
                                   na.rm = TRUE))
   # Make the data NA where there are big jumps, or just wrong data (anomalies)
   # If the data jump more than 1.5x the 95% value for that time period
-  # If DO.obs is less than 1.5 mg/L (not really possible in this river)
+  # If DO.obs is less than 2 mg/L (not really possible in this river)
   # If there was an anomaly from decomposition method (but not 
   # for summertime or very specific period in 1993 with weird spring values)
   data <- data %>% 
@@ -158,7 +159,8 @@ df_DO <- df_DO %>%
          DO_use = ifelse(na_check > 24,
                          NA,
                          filtered)) %>%
-  ungroup()
+  ungroup() %>%
+  select(-data, -clean)
 
 # Save data
 saveRDS(df_DO, "Data/all_DO_cleaned")

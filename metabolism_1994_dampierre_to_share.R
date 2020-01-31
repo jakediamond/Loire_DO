@@ -7,7 +7,9 @@
 # Set working directory
 # setwd("Z:/Loire_DO")
 setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
-
+install.packages("streamMetabolizer", dependencies=TRUE, 
+                 repos=c("https://owi.usgs.gov/R","https://cran.rstudio.com"))
+devtools::install_github('USGS-R/streamMetabolizer')
 # Load libraries
 library(readxl)
 library(lubridate)
@@ -48,8 +50,8 @@ k6_sd <- 0.22
 
 # Set the specifications
 bayes_specs <- specs(model_name = bayes_mod,
-                     burnin_steps = 1000,
-                     saved_steps = 500
+                     burnin_steps = 100,
+                     saved_steps = 100
                      , K600_lnQ_nodes_centers = brks
                      , K600_lnQ_nodes_meanlog = rep(k6, 
                                                     length(brks))
@@ -64,4 +66,7 @@ mm <- metab(specs = bayes_specs,
 
 # Inspect the model -------------------------------------------------------
 met_pred <- predict_metab(mm)
-
+plot_metab_preds(mm)
+ggplot(get_params(mm), aes(x=date, y=K600.daily)) + geom_point()
+plot_distribs(bayes_specs, 'K600_lnQ_nodes')
+get_fit(mm)$KQ_binned %>% select(index, lnK600_lnQ_nodes_2.5pct, lnK600_lnQ_nodes_50pct, lnK600_lnQ_nodes_97.5pct)

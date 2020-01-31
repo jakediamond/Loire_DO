@@ -63,12 +63,23 @@ lu <- st_set_crs(lu, 2154)
 veg <- st_read("Data/GIS/ZONE_VEGETATION_42.shp")
 veg <- st_set_crs(veg, 2154)
 
-# Only get reaches for our data points instead of the entire network
-# I went into ArcGIS and specifically labeled them with "_"
-# reaches <- filter(reaches, str_detect(Toponyme, "_"))
+# Read in Loire watershed files
+ws <- st_read("Data/GIS/watershed_sites_Loire.shp")
+ws <- st_set_crs(ws, 2154)
+
+# Read in site points
+pts <- st_read("Data/GIS/sites_L93.shp")
+pts <- st_set_crs(pts, 2154)
+
+# Intersect tnet reaches to the watersheds
+ws_int <- st_intersection(tnet, ws)
+
+# Intersect landuse and veg to watersheds
+lu_ws <- st_intersection(lu, ws)
+veg_ws <- st_intersection(veg, ws)
 
 # Calculate 1, 2, 5, 10, 20, 50, and 100 m buffers around each reach
-buff_dists <- list(buff_dists = c(1, 2 ,5, 10, 20, 50, 100))
+buff_dists <- list(buff_dists = c(10, 20, 50, 100, 200, 500))
 
 # Get data in good format with sf as list column for each buffer distance
 # Then buffer and intersect, calculate areas of intersection
@@ -97,11 +108,6 @@ int_veg_sum <- ints %>%
   mutate(area_total_m2 = sum(area_veg_m2),
          area_veg_frac = area_veg_m2 / area_total_m2)
 
-# Write to disc
-saveRDS(int_lu_sum, "Data/Headwaters_DO/buffer_land_use")
-saveRDS(int_veg_sum, "Data/Headwaters_DO/buffer_vegetation")
-int_sum <- readRDS("Data/Headwaters_DO/buffer_land_use")
-
 # Clean up dataframe
 meta <- tibble(reGROUP = c(11, 12, 21, 22, 31, 32, 33, 40, 50),
                landuse = c("territoire artificialisé dense",
@@ -113,140 +119,257 @@ meta <- tibble(reGROUP = c(11, 12, 21, 22, 31, 32, 33, 40, 50),
                            "espaces ourverts",
                            "zones humides",
                            "surfaces en eaux"))
-df_lu <- int_lu_sum %>%
-  separate(Toponyme, c("river", "loc"),  sep = "_") %>%
-  mutate(site = str_c(str_to_title(word(river, 3
-                                  )
-                             ),
-                      loc, sep = " "
-                      ),
-         site = str_squish(site),
-         site = str_trim(site),
-         site = ifelse(site == "Charpassone la Jamarie",
-                       "Charpassonne la Jamarie",
-                       site),
-         site = ifelse(site == "Charpassone de Donzy Salt",
-                       "Charpassone de Donzy",
-                       site),
-         site = ifelse(site == "Doise Doise",
-                       "Doise",
-                       site),
-         site = ifelse(site == "Curraize Curraize",
-                "Curraize",
-                site)) %>%
-  left_join(meta) %>%
-  mutate(lu_buff = str_c(landuse, "_", buff_dists, "m")) %>%
-  ungroup() %>%
-  dplyr::select(-river, -loc, -reGROUP, -area_lu_m2, 
-         -area_total_m2, -landuse, -buff_dists) %>%
-  spread(lu_buff, area_lu_frac)
 
-x <- x %>%
-  separate(Toponyme, c("river", "loc"),  sep = "_") %>%
-  mutate(site = str_c(str_to_title(word(river, 3
-  )
-  ),
-  loc, sep = " "
-  ),
-  site = str_squish(site),
-  site = str_trim(site),
-  site = ifelse(site == "Charpassone la Jamarie",
-                "Charpassonne la Jamarie",
-                site),
-  site = ifelse(site == "Charpassone de Donzy Salt",
-                "Charpassone de Donzy",
-                site),
-  site = ifelse(site == "Doise Doise",
-                "Doise",
-                site),
-  site = ifelse(site == "Curraize Curraize",
-                "Curraize",
-                site)) %>%
-  left_join(meta) %>%
-  mutate(lu_buff = str_c(landuse, "_", buff_dists, "m")) %>%
-  ungroup() %>%
-  dplyr::select(-river, -loc, -reGROUP, -area_lu_m2, 
-                -area_total_m2, -landuse, -buff_dists) %>%
-  spread(lu_buff, area_lu_frac)
+int_lu_sum <- left_join(int_lu_sum, meta)
+lu_pal7 <- c("#ffffa8", "#e68000", "#80ff00", "#ccffcc", "#80f2e6", "#cc0000", "#ff0000")
+# Quick plots
+buff_plot <- ggplot(data = int_lu_sum,
+       aes(x = buff_dists,
+           y = area_lu_frac,
+           color = landuse)) +
+  geom_line(size = 2, alpha = 0.8) +
+  facet_wrap(~site) +
+  scale_color_manual(values = lu_pal7) +
+  theme_bw() +
+  xlab("Buffer distance from stream (m)") +
+  ylab("Fraction of land cover")
 
+ggsave(plot = buff_plot,
+       filename = "Figures/buffer_plot_larger.png",
+       dpi = 300,
+       height = 6,
+       width = 12)
 
-
-df_veg <- int_veg_sum %>%
-  separate(Toponyme, c("river", "loc"),  sep = "_") %>%
-  mutate(site = str_c(str_to_title(word(river, 3)
-                                   ),
-                      loc, 
-                      sep = " "),
-  site = str_squish(site),
-  site = str_trim(site),
-  site = ifelse(site == "Charpassone la Jamarie",
-                "Charpassonne la Jamarie",
-                site),
-  site = ifelse(site == "Charpassone de Donzy Salt",
-                "Charpassone de Donzy",
-                site),
-  site = ifelse(site == "Doise Doise",
-                "Doise",
-                site),
-  site = ifelse(site == "Curraize Curraize",
-                "Curraize",
-                site)) %>%
-  mutate(veg_buff = str_c(NATURE, "_", buff_dists, "m")) %>%
-  ungroup() %>%
-  dplyr::select(-river, -loc, -area_veg_m2, 
-                -area_total_m2, -NATURE, -buff_dists) %>%
-  spread(veg_buff, area_veg_frac)
-    
-# Write to disc for regression
-saveRDS(df_lu, "Data/Headwaters_DO/buffer_land_use_regression")
-write_csv(df_lu, "Data/Headwaters_DO/buffer_land_use_regression.csv")
-
-# Combine veg and land use
-df <- left_join(df_lu, df_veg)
-
-# Save all
-saveRDS(df, "Data/Headwaters_DO/buffer_land_use_veg_regression")
-write_excel_csv2(df, "Data/Headwaters_DO/buffer_land_use_veg_regression.csv")
-
-
+# Write to disc
+saveRDS(int_lu_sum, "Data/Headwaters_DO/buffer_land_use")
+saveRDS(int_veg_sum, "Data/Headwaters_DO/buffer_vegetation")
+int_sum <- readRDS("Data/Headwaters_DO/buffer_land_use")
 # Plotting ----------------------------------------------------------------
-
 # Plot maps
-buff_data <- pluck(ints, 6, 7) %>%
+buff_data <- pluck(ints, 6, 6) %>%
   left_join(meta)
-veg_data <- pluck(ints, 7, 7)
+veg_data <- pluck(ints, 7, 6)
 
-# landuse plot
+# Define landuse color palette
+lu_pal5 <- c("#ffffa8", "#e68000", "#80ff00", "#ccffcc", "#ff0000")
+
+# landuse plot at buffer scale
 lu_p <- tm_shape(buff_data) +
-  tm_fill("landuse") +
+  tm_fill("landuse", palette = lu_pal7) +
   tm_facets(by = "site") +
   tm_shape(tnet_reaches) +
   tm_lines(col = "blue") +
   tm_facets(by = "site") +
   tm_compass(type = "arrow", position = c("LEFT", "TOP"), size = 1) +
-  tm_scale_bar(position = c("RIGHT", "BOTTOM")) +
-  tm_layout(legend.position = c(-0.3, 0.05),
-            legend.width = 100)
+  tm_scale_bar(position = c("RIGHT", "BOTTOM"),
+               text.size = 1.5) +
+  tm_layout(legend.position = c(-0.3, 0.0),
+            panel.label.size = 1.8,
+            legend.text.size = 1.5,
+            legend.title.size = 1.6)
 
-tmap_save(lu_p, filename = "Figures/land_use_buffers.png",
-          width = 12, height = 8)
+tmap_save(lu_p, filename = "Figures/land_use_buffers_200.png",
+          width = 18, height = 12,
+          dpi = 300)
 
 veg_p <- 
   tm_shape(tnet_reaches) +
   tm_lines(col = "blue") +
   tm_facets(by = "site") +
-  tm_shape(y) +
-  tm_fill("NATURE", palette = "viridis") +
+  tm_shape(veg_data) +
+  tm_fill("NATURE") +
   tm_facets(by = "site") +
   tm_compass(type = "arrow", position = c("LEFT", "TOP"), size = 1) +
-  tm_scale_bar(position = c("RIGHT", "BOTTOM")) +
-  tm_layout(legend.position = c(-0.3, 0.0),
-            legend.width = 100)
+  tm_scale_bar(position = c("RIGHT", "BOTTOM"),
+               text.size = 1.5) +
+  tm_layout(legend.position = c(-0.3, -0.01),
+            panel.label.size = 1.8,
+            legend.text.size = 1.2,
+            legend.title.size = 1.3)
 
-tmap_save(veg_p, filename = "Figures/veg_buffers.png",
-          width = 12, height = 8)
+tmap_save(veg_p, filename = "Figures/veg_buffers_200.png",
+          width = 18, height = 12)
 
-# Maybe try ArcGIS binding analysis here ----------------------------------
+lu_pal7 <- c("#ffffa8", "#e68000", "#80ff00", "#ccffcc", "#80f2e6", "#cc0000", "#ff0000")
+# Landuse plot at the watershed scale
+lu_ws <- left_join(lu_ws, meta)
+lu_ws_p <- tm_shape(lu_ws) +
+  tm_fill("landuse", palette = lu_pal7) +
+  tm_facets(by = "name_site") +
+  tm_shape(ws_int) +
+  tm_lines(lwd = "OSTRAHL", col = "blue", scale = 2,
+           legend.lwd.show = FALSE, alpha = 0.6) +
+  tm_facets(by = "name_site") +
+  tm_compass(type = "arrow", position = c("LEFT", "TOP"), size = 1) +
+  tm_scale_bar(position = c("RIGHT", "BOTTOM"),
+               text.size = 1.5) +
+  tm_layout(legend.position = c(-0.6, 0),
+            panel.label.size = 1.8,
+            legend.text.size = 1.3,
+            legend.title.size = 1.4)
+
+tmap_save(lu_ws_p, filename = "Figures/land_use_watershed.png",
+          width = 18, height = 12)
+
+# Veg plot at the watershed scale
+veg_ws_p <- tm_shape(veg_ws) +
+  tm_fill("NATURE") +
+  tm_facets(by = "name_site") +
+  # tm_shape(ws_int) +
+  # tm_lines(lwd = "OSTRAHL", col = "blue", scale = 2,
+  #          legend.lwd.show = FALSE, alpha = 0.6) +
+  # tm_facets(by = "name_site") +
+  tm_compass(type = "arrow", position = c("LEFT", "TOP"), size = 1) +
+  tm_scale_bar(position = c("RIGHT", "BOTTOM"),
+               text.size = 1.5) +
+  tm_layout(legend.position = c(-0.6, 0),
+            panel.label.size = 1.8,
+            legend.text.size = 1.3,
+            legend.title.size = 1.4)
+
+tmap_save(veg_ws_p, filename = "Figures/veg_watershed.png",
+          width = 18, height = 12)
+
+# Try the landscapemetrics package ----------------------------------------
+library(landscapemetrics)
+library(landscapetools)
+library(fasterize)
+# Get data into raster format and calculate all landscape metrics by land use
+sites <- unique(lu_ws$name_site)
+metrics <- data.frame(site = sites, ls_mets = rep(NA,length(sites)))
+for(i in 1:length(sites)){
+  site = sites[i]
+  data = filter(lu_ws, name_site == site)
+  data = st_cast(data, "MULTIPOLYGON")
+  r = raster(data, resolution = 1)
+  rf = fasterize(data, r, field = "reGROUP")
+  metrics[i, 2] = list(calculate_lsm(rf, what = c("lsm_l_ent", "lsm_l_condent",
+                            "lsm_l_joinent", "lsm_l_mutinf", 
+                            "lsm_l_frac", "lsm_l_contag"),
+                full_name = TRUE))
+  rm(r, rf)
+}
+
+
+
+  lu
+  pluck(6, 1) %>%
+  st_cast("MULTIPOLYGON") %>%
+  group_by(site) %>%
+  nest() %>%
+  mutate(r = map(data, ~raster(., resolution = 100)),
+         rf = map2(data, r, ~fasterize(.x, .y, field = "reGROUP"))) %>%
+  mutate(metrics_ls = map(rf, ~calculate_lsm(., level = "landscape")),
+         metrics_cl = map(rf, ~calculate_lsm(., level = "class")))
+# 
+# # Get data in dataframe format
+# lu_metrics <- lu_n %>%
+#   select(site, metrics_ls) %>%
+#   unnest()
+# 
+# lu_metrics %>%
+#   group_by(metric) %>%
+#   summarize(mean = mean(value, na.rm = TRUE),
+#             sd = sd(value, na.rm = TRUE),
+#             cv = sd / mean) %>%
+#   filter(cv > 0.75)
+#  
+# ggplot(data= lu_metrics,
+#        aes(x = site,
+#            y = value,
+#            color = site)) + geom_point() +
+#   facet_wrap(~metric,scales = "free_y")
+# 
+# # Do the same for vegetation patches
+# # Get data into raster format and calculate all landscape metrics by land use
+# veg_n <- ints %>%
+#   filter(buff_dists == 100) %>%
+#   pluck(7, 1) %>%
+#   st_cast("MULTIPOLYGON") %>%
+#   group_by(site) %>%
+#   mutate(veg_type = as.factor(NATURE)) %>%
+#   nest() %>%
+#   mutate(r = map(data, ~raster(., resolution = 100)),
+#          rf = map2(data, r, ~fasterize(.x, .y, field = "veg_type"))) %>%
+#   mutate(metrics_ls = map(rf, ~calculate_lsm(., level = "landscape")),
+#          metrics_cl = map(rf, ~calculate_lsm(., level = "class")))
+# 
+# # Get data in dataframe format
+# veg_metrics <- veg_n %>%
+#   ungroup() %>%
+#   select(metrics_ls)
+# 
+# # Look at the correlation in the metrics
+# show_correlation(lu_metrics, method = "pearson")
+# 
+
+# Get data into raster format and calculate all landscape metrics by land use
+lu_ws_lm <- lu_ws %>%
+  # filter(surf_km2 < 200) %>%
+  st_cast("MULTIPOLYGON") %>%
+  group_by(name_site) %>%
+  nest() %>%
+  mutate(r = map(data, ~raster(., resolution = 100)),
+         rf = map2(data, r, ~fasterize(.x, .y, field = "reGROUP"))) %>%
+  mutate(metrics_ls = map(rf, ~calculate_lsm(., what = c("lsm_l_ent", "lsm_l_condent",
+                                                     "lsm_l_joinent", "lsm_l_mutinf", 
+                                                     "lsm_l_frac", "lsm_l_contag"),
+                                             full_name = TRUE)),
+         metrics_cl = map(rf, ~calculate_lsm(., what = c("lsm_c_clumpy", "lsm_c_cohesion",
+                                                         "lsm_c_tca", "lsm_c_frac_mn", 
+                                                         "lsm_c_contig_mn"),
+                                             full_name = TRUE)))
+
+# Get data in dataframe format
+lu_ws_metrics <- lu_ws_lm %>%
+  select(name_site, metrics_ls) %>%
+  unnest()
+
+ggplot(data = lu_ws_metrics,
+       aes(x = name_site,
+           y = value,
+           color = name_site)) +
+  geom_point() + facet_wrap(~metric, scales = "free_y")
+
+# Get data in dataframe format
+lu_ws_metrics_cl <- lu_ws_lm %>%
+  select(name_site, metrics_ls) %>%
+  unnest() %>%
+  mutate(reGROUP = class) %>%
+  left_join(meta)
+
+
+
+
+lu_buff_lm <- ints %>%
+  pluck(6, 6) %>%
+  st_cast("MULTIPOLYGON") %>%
+  group_by(name_site) %>%
+  nest() %>%
+  mutate(r = map(data, ~raster(., resolution = 100)),
+         rf = map2(data, r, ~fasterize(.x, .y, field = "reGROUP"))) %>%
+  mutate(metrics_ls = map(rf, ~calculate_lsm(., what = c("lsm_l_ent", "lsm_l_condent",
+                                                         "lsm_l_joinent", "lsm_l_mutinf", 
+                                                         "lsm_l_frac", "lsm_l_contag"),
+                                             full_name = TRUE)),
+         metrics_cl = map(rf, ~calculate_lsm(., what = c("lsm_c_clumpy", "lsm_c_cohesion",
+                                                         "lsm_c_tca", "lsm_c_frac_mn", 
+                                                         "lsm_c_contig_mn"),
+                                             full_name = TRUE)))
+
+# Get data in dataframe format
+lu_buff_metrics_cl <- lu_buff_lm %>%
+  select(name_site, metrics_cl) %>%
+  unnest() %>%
+  mutate(reGROUP = class) %>%
+  left_join(meta)
+
+# Get data in dataframe format
+lu_buff_metrics <- lu_buff_lm %>%
+  select(name_site, metrics_ls) %>%
+  unnest()
+
+.# Maybe try ArcGIS binding analysis here ----------------------------------
 riv <- st_read("Data/GIS/tnet_headwaters.shp")
 riv <- st_set_crs(riv, 2154)
 
@@ -306,50 +429,100 @@ st_write(df, "Data/GIS/tnet_out.shp")
 
 
 
-# Try the landscapemetrics package ----------------------------------------
-library(landscapemetrics)
-library(landscapetools)
-library(fasterize)
-# Get data into raster format and calculate all landscape metrics by land use
-lu_n2 <- ints %>%
-  filter(buff_dists == 100) %>%
-  unnest(c(ints_lu)) %>%
-  group_by(name_site) %>%
-  nest() %>%
-  mutate(r = map(data, ~raster(., resolution = 100))),
-         rf = map2(data, r, ~fasterize(.x, .y, field = "reGROUP"))) %>%
-  mutate(metrics_l = map(rf, ~calculate_lsm(., level = "class")))
 
-# Get data in dataframe format
-lu_metrics <- lu_n %>%
-  select(name_site, metrics_l) %>%
-  unnest()
+# Saving data -------------------------------------------------------------
+df_lu <- int_lu_sum %>%
+  separate(Toponyme, c("river", "loc"),  sep = "_") %>%
+  mutate(site = str_c(str_to_title(word(river, 3
+  )
+  ),
+  loc, sep = " "
+  ),
+  site = str_squish(site),
+  site = str_trim(site),
+  site = ifelse(site == "Charpassone la Jamarie",
+                "Charpassonne la Jamarie",
+                site),
+  site = ifelse(site == "Charpassone de Donzy Salt",
+                "Charpassone de Donzy",
+                site),
+  site = ifelse(site == "Doise Doise",
+                "Doise",
+                site),
+  site = ifelse(site == "Curraize Curraize",
+                "Curraize",
+                site)) %>%
+  left_join(meta) %>%
+  mutate(lu_buff = str_c(landuse, "_", buff_dists, "m")) %>%
+  ungroup() %>%
+  dplyr::select(-river, -loc, -reGROUP, -area_lu_m2, 
+                -area_total_m2, -landuse, -buff_dists) %>%
+  spread(lu_buff, area_lu_frac)
 
-# Do the same for vegetation patches
-veg_n <- veg %>%
-  group_by(name_site) %>%
-  nest() %>%
-  mutate(r = map(data, ~raster(., res = 100)),
-         rf = map2(data, r, ~fasterize(.x, .y, field = "reGROUP"))) %>%
-  mutate(metrics_l = map(rf, ~calculate_lsm(., level = "class")))
+x <- x %>%
+  separate(Toponyme, c("river", "loc"),  sep = "_") %>%
+  mutate(site = str_c(str_to_title(word(river, 3
+  )
+  ),
+  loc, sep = " "
+  ),
+  site = str_squish(site),
+  site = str_trim(site),
+  site = ifelse(site == "Charpassone la Jamarie",
+                "Charpassonne la Jamarie",
+                site),
+  site = ifelse(site == "Charpassone de Donzy Salt",
+                "Charpassone de Donzy",
+                site),
+  site = ifelse(site == "Doise Doise",
+                "Doise",
+                site),
+  site = ifelse(site == "Curraize Curraize",
+                "Curraize",
+                site)) %>%
+  left_join(meta) %>%
+  mutate(lu_buff = str_c(landuse, "_", buff_dists, "m")) %>%
+  ungroup() %>%
+  dplyr::select(-river, -loc, -reGROUP, -area_lu_m2, 
+                -area_total_m2, -landuse, -buff_dists) %>%
+  spread(lu_buff, area_lu_frac)
 
-# Get data in dataframe format
-lu_metrics <- lu_n %>%
-  select(name_site, metrics_l) %>%
-  unnest()
-# 
-lu_sub <- filter(lu, name_site == "Doise")
-r <- raster(lu_sub, res = 100)
-r <- fasterize(lu_sub, r, field = "reGROUP")
-plot(pluck(lu_n,3,1))
-show_landscape(r)
 
-lsm_l_division(r)
-# Calculate all metrics at the patch scale
-metrics <- calculate_lsm(r, what = "patch")
-metrics_l <- calculate_lsm(r, level = "class")
 
-# Look at the correlation in the metrics
-show_correlation(metrics_l, method = "pearson")
+df_veg <- int_veg_sum %>%
+  separate(Toponyme, c("river", "loc"),  sep = "_") %>%
+  mutate(site = str_c(str_to_title(word(river, 3)
+  ),
+  loc, 
+  sep = " "),
+  site = str_squish(site),
+  site = str_trim(site),
+  site = ifelse(site == "Charpassone la Jamarie",
+                "Charpassonne la Jamarie",
+                site),
+  site = ifelse(site == "Charpassone de Donzy Salt",
+                "Charpassone de Donzy",
+                site),
+  site = ifelse(site == "Doise Doise",
+                "Doise",
+                site),
+  site = ifelse(site == "Curraize Curraize",
+                "Curraize",
+                site)) %>%
+  mutate(veg_buff = str_c(NATURE, "_", buff_dists, "m")) %>%
+  ungroup() %>%
+  dplyr::select(-river, -loc, -area_veg_m2, 
+                -area_total_m2, -NATURE, -buff_dists) %>%
+  spread(veg_buff, area_veg_frac)
 
-lsm_l_ent(r)
+# Write to disc for regression
+saveRDS(df_lu, "Data/Headwaters_DO/buffer_land_use_regression")
+write_csv(df_lu, "Data/Headwaters_DO/buffer_land_use_regression.csv")
+
+# Combine veg and land use
+df <- left_join(df_lu, df_veg)
+
+# Save all
+saveRDS(df, "Data/Headwaters_DO/buffer_land_use_veg_regression")
+write_excel_csv2(df, "Data/Headwaters_DO/buffer_land_use_veg_regression.csv")
+

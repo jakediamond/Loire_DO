@@ -5,18 +5,20 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
+setwd("Z:/Loire_DO")
 setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
 library(dygraphs)
 library(htmltools)
-library(tidyverse)
+# library(ggpubr)
+library(plotly)
 library(lubridate)
 library(readxl)
 library(scales)
-# library(ggpubr)
-library(plotly)
+library(tidyverse)
+
+
 
 # Set ggplot theme
 th <- theme_bw() +
@@ -213,16 +215,16 @@ ggsave(filename = "Figures/initial_DO_timeseries_ordered_by_watershed.png",
 df_dy_n <- df %>%
   select(datetime, Subwatershed, Subwatershed_order, Site, DO, temp) %>%
   group_by(Subwatershed) %>%
-  nest(.key = by_subwatershed) %>%
-  mutate(by_subwatershed = map(by_subwatershed, ~.x %>%
+  nest() %>%
+  mutate(by_subwatershed = map(data, ~.x %>%
                          group_by(Site, Subwatershed_order) %>%
-                         nest(.key = by_site)
+                         nest()
                        )
          )
 
 # First need to get data in correct timeseries format
 df_dy <- df_dy_n %>%
-  mutate(ts = map(by_subwatershed, "by_site") %>%
+  mutate(ts = map(by_subwatershed, "data") %>%
            map_depth(2, ~zoo::zoo(x = c(.$DO, .$temp), order.by = .$datetime)),
          )
 
@@ -285,12 +287,12 @@ df_n <- df %>%
            ))
 
 df_dy2 <- df_dy %>%
-  mutate(p = map(by_subwatershed, "by_site") %>%
+  mutate(p = map(by_subwatershed, "data") %>%
            map_depth(2, ~zoo::zoo(x = ., order.by = .$datetime)) %>%
            map_depth(2, ~graph_fun(.),
   ))
 
-pluck(df_dy2, 4, 2)
+pluck(df_dy2, 5, 2)
 
 htmltools::browsable(htmltools::tagList(pluck(df_dy2, 4)))
 

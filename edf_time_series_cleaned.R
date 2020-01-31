@@ -6,7 +6,8 @@
 
 # Set working directory
 # setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("D:/jake.diamond/Loire_DO")
 
 # Load libraries
 library(tidyverse)
@@ -37,18 +38,20 @@ x <- filter(df_day, is.na(date2015))
 
 # Plot daily min and max by site
 p <- ggplot(data = filter(df_day,
-                          var != "mag"),
+                          site == "dampierre",
+                          var != "mag",
+                          !is.infinite(value)),
             aes(x = date,
                 y = value,
                 color = var)) +
   geom_point() +
-  facet_grid(~ site, scales = "free"
-             # ,labeller = label_wrap_gen(width=10)
-             ) +
+  # facet_grid(~ site, scales = "free"
+  #            # ,labeller = label_wrap_gen(width=10)
+  #            ) +
   # scale_x_date(date_breaks = "3 months",
   #              date_labels = "%m") +
   theme_bw() +
-  scale_colour_viridis_d() +
+  scale_colour_viridis_d()
   # theme(axis.title.x = element_blank(),
   #       legend.position = "bottom",
   #       legend.direction = "horizontal",
@@ -59,6 +62,7 @@ p <- ggplot(data = filter(df_day,
   # guides(color = guide_legend(nrow = 2)) + 
   # ylab("Mean daily value")
 
+p
 ggsave(plot = p,
        filename = "Figures/mean_daily_values_all_sites_both_periods.tiff",
        device = "tiff",

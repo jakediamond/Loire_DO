@@ -6,7 +6,8 @@
 
 # Set working directory
 # setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("D:/jake.diamond/Loire_DO")
 
 # Load libraries
 library(readxl)
@@ -15,7 +16,7 @@ library(streamMetabolizer)
 library(tidyverse)
 
 # Look at what data inputs are needed for bayes model
-metab_inputs("Kmodel", "data")
+metab_inputs("bayes", "data")
 
 # Discharge data load and clean -----------------------------------------------------
 # Generate daily time series
@@ -122,118 +123,119 @@ df <- depth %>%
 # df$discharge <- NULL
 
 # Split data into four analysis periods to reduce memory needed
-df <- df %>%
+df2 <- df %>%
   # drop_na(DO.sat) %>%
-  mutate(time_frame = ifelse(year(solar.time) < 2001, 1, 2)) %>%
+  mutate(time_frame = ifelse(between(year(solar.time), 
+                                     1993, 
+                                     1996),
+                             1,
+                             ifelse(between(year(solar.time), 
+                                            1997, 
+                                            2000),
+                                    2,
+                                    ifelse(between(year(solar.time), 
+                                                   2008, 
+                                                   2013),
+                                           3,
+                                           4
+                                           )
+                                    )
+                             )
+         ) %>%
   select(DO.obs = filtered, temp.water, site, 
          light, depth, DO.sat, solar.time
          , time_frame
          )
 
 # Create periods of 4–6 years and nest data
-df_n <- df %>%
+df_n <- df2 %>%
   filter(site == "dampierre") %>%
   select(-site) %>%
   group_by(time_frame) %>%
   nest() %>%
   left_join(df_q %>%
-              mutate(time_frame = ifelse(year(date) < 2001, 1, 2)) %>%
-              group_by(time_frame) %>%
-              nest() %>%
-              rename(data_q = data))
+              mutate(time_frame = ifelse(between(year(date), 
+                                                 1993, 
+                                                 1996),
+                                         1,
+                                         ifelse(between(year(date), 
+                                                        1997, 
+                                                        2000),
+                                                2,
+                                                ifelse(between(year(date), 
+                                                               2008, 
+                                                               2013),
+                                                       3,
+                                                       4
+                                                       )
+                                                )
+                                         )
+                     ) %>%
+             group_by(time_frame) %>%
+             nest() %>%
+             rename(data_q = data))
   
-k_test <- metab_night(
-  specs(mm_name("night")), 
-  data = filter(df, site == "dampierre") %>%
-    select(-site, -time_frame))
-saveRDS(k_test, "Data/K600_estimates_nighttime_regression_Dampierre")
-k_test <- readRDS("Data/K600_estimates_nighttime_regression_Dampierre")
-x <- (get_params(k_test))
-summary(x)
-plot()
-
-# Get O connor and dobbins estimate of K600 daily for mle
-df_d <- df_q %>%
-  right_join(filter(df, site == "dampierre") %>%
-              mutate(date = date(solar.time)) %>%
-              group_by(date) %>%
-              summarize(t = mean(temp.water, na.rm = T))) %>%
-  mutate(v = 0.165*discharge.daily^0.275,
-         d = 0.134*discharge.daily^0.4125,
-         ka = 3.89*(v^0.5)/(d^1.5),
-         s = 1801 - 120.1*t +3.782*t^2 -0.0476*t^3,
-         K600.daily = (600/s)^-0.5 * ka) %>%
-  select(date, K600.daily) 
-
-summary(df_d)
-com <- left_join(df_d, x, by = "date")
-plot(com$K600.daily.x, com$K600.daily.y)
-#
 # Configure the model -----------------------------------------------------
 # Choose a model structure
-# We choose a MLE model with both observation error and process error
+# We choose a Bayesian model with both observation error and process error
 # We will pool K600
-bayes_mod <- mm_name(type = 'mle')
+bayes_mod <- mm_name(type = 'bayes', 
+                     pool_K600 = 'binned', 
+                     err_obs_iid = TRUE, 
+                     err_proc_iid = TRUE,
+                     err_proc_GPP = TRUE,
+                     deficit_src = "DO_obs")
 bayes_mod
 
-# Quick clean
-df_use <- df %>%
-  filter(solar.time < ymd_hms("2018-12-30 04:09:58"))
+# Metabolism function for nested data ---------------------------------------
+met_fun <- function(data, data_q, bayes_name = bayes_mod){
+  # Calculate the natural-log-space centers of the discharge bins
+  # These are the bins for the time frame of 
+  # Use the width method as in the help file with with = 0.8 log units
+  brks <- calc_bins(vec = log(data_q$discharge.daily),
+                    method = "width",
+                    width = 0.8)$bounds
+  
+  # Estimate the mean ln(k600) value for the river from O'Connor and direct 
+  # measurements with floating dome
+  # Theis are the hyperprior mean for k600 in log space 
+  k6 <- 0.7
+  
+  # Same for standard deviation, super tight prior
+  k6_sd <- 0.1
 
-df_d_use <- df_d %>%
-  filter(date < ymd("2018-12-31"))
+  # Set the specifications
+  bayes_specs <- specs(model_name = bayes_name,
+                       burnin_steps = 1000,
+                       saved_steps = 500
+                       , K600_lnQ_nodes_centers = brks
+                       , K600_lnQ_nodes_meanlog = rep(k6, 
+                                                      length(brks))
+                       , K600_lnQ_nodes_sdlog = rep(k6_sd, 
+                                                    length(brks))
+  )
 
-# # Metabolism function for nested data ---------------------------------------
-# met_fun <- function(data, data_q, bayes_name = bayes_mod){
-#   # Calculate the natural-log-space centers of the discharge bins
-#   # These are the bins for the time frame of 
-#   # Use the width method as in the help file with with = 0.8 log units
-#   brks <- calc_bins(vec = log(data_q$discharge.daily),
-#                     method = "width",
-#                     width = 0.8)$bounds
-#   
-#   # Estimate the mean ln(k600) value for the river from O'Connor and direct 
-#   # measurements with floating dome
-#   # Theis are the hyperprior mean for k600 in log space 
-#   k6 <- 0.19
-#   
-#   # Same for standard deviation
-#   k6_sd <- 0.22
-# 
-#   # Set the specifications
-#   bayes_specs <- specs(model_name = bayes_name,
-#                        burnin_steps = 1000,
-#                        saved_steps = 500
-#                        , K600_lnQ_nodes_centers = brks
-#                        , K600_lnQ_nodes_meanlog = rep(k6, 
-#                                                       length(brks))
-#                        , K600_lnQ_nodes_sdlog = rep(k6_sd, 
-#                                                     length(brks))
-#   )
-# 
-#   # Do the metabolism
-#   metab(specs = bayes_specs, 
-#         data = as.data.frame(data), 
-#         data_daily = as.data.frame(data_q))
-# }
+  # Do the metabolism
+  metab(specs = bayes_specs, 
+        data = as.data.frame(data), 
+        data_daily = as.data.frame(data_q))
+}
 
 # Run the metabolism model on nested data ---------------------------------
-mm_mle <- metab(specs = specs("mle"),
-                data = filter(df_use, site == "dampierre") %>%
-                  select(-site, -time_frame),
-                data_daily = df_d)
+mm_all <- df_n %>%
+  transmute(mm = map2(data, data_q, ~met_fun(data = .x,
+                                             data_q = .y)
+                      )
+         )
 
-saveRDS(mm_mle, "Data/Loire_DO/metab_mle")
-mm_mle <- readRDS("Data/Loire_DO/metab_mle")
+saveRDS(mm_all, "Data/Loire_DO/metab_veryconstrainedKerr_proc_gpp_true_def_obs")
 # Inspect the model -------------------------------------------------------
-mm <- predict_metab(mm_mle)
+mm <- mm_all %>%
+  mutate(met = map(mm, predict_metab)) %>%
+  unnest(met)
 
-ggplot(data = filter(mm,
-                     between(date,
-                             ymd("1994-01-01"),
-                             ymd("1994-12-31"))), aes(x = date,
+ggplot(data = mm, aes(x = date,
                       y = GPP)) + geom_point()
-
 mm %>%
   mutate(year = year(date),
          month = month(date)) %>%
@@ -244,16 +246,43 @@ mm %>%
   summarize(avg = mean(value, na.rm = T)) %>%
   ggplot(aes(x = year, y = avg, color = flux)) + geom_point()
 
-rh <- mm_all[1:2,] %>%
+rh <- mm_all[4, ] %>%
   mutate(r = map(mm, get_fit)) %>%
   unnest(r)
+
+plot(pluck(rh, 3, 2)$err_proc_GPP_mean)
+
+
   select(ends_with("Rhat"))
 get_fit(mm_all)
-mm <- readRDS("Data/Loire_DO/mm_2009_2011.rds")
 
-kt <- get_params(mm_mle)
+kt <- mm_all %>%
+  mutate(mk = map(mm, get_params)) %>%
+  unnest(mk)
 plot(kt$K600.daily, kt$ER.daily)
 plot(kt$date, kt$K600.daily)
 
-plot_metab_preds(mm_mle)
-plot_DO_preds(mm_mle)
+
+# Look at priors/posteriors
+plot_distribs(bayes_specs, "K600_daily_lnQ")
+plot_distribs(mm_all[1,], "K600_daily")
+get_specs(mm_all)
+# Daily metabolism predictions
+predict_metab(mm)
+plot_metab_preds(mm_all)
+get_specs(mm)
+get_params(mm)
+plot_DO_preds(mm)
+plot(get_params(mm_all)$K600.daily, predict_metab(mm_all)$ER)
+plot(get_params(mm)$date, get_params(mm)$K600.daily)
+head(predict_DO(mm))
+get
+?plot_DO_preds()
+saveRDS(mm, file = "Data/Loire_DO/mm_1993_1996")
+mm <- readRDS("Data/Loire_DO/mm_1994.rds")
+
+do_test <- lag(get_data(mm)$DO.obs) + 
+  (predict_DO(mm)$DO.mod-lag(predict_DO(mm)$DO.mod))+
+  summary(get_fit(mm)$inst$err_proc_iid_mean)
+summary(get_fit(mm)$inst$err_obs_iid_mean)
+plot(do_test)

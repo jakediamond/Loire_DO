@@ -20,10 +20,10 @@ library(lubridate)
 df <- readRDS("Data/Headwaters_DO/DO_time_series")
 
 # Only get DO data and nest data by site, 
-# Split into the two periods 1993-2000 and 2008-2018
 # rename DO_obs for observed values
 df_n <- df %>%
   rename(DO_obs = DO) %>%
+  distinct() %>%
   group_by(Site) %>%
   nest()
 
@@ -128,7 +128,8 @@ lowpass_fun <- function(data,
   data$filtered <- filtered
   data <- data[with(data, order(datetime)), ]
   rem <- sr / cutoff
-  data <- data[-c(1:rem, (nrow(data) - rem):nrow(data)),]
+  # data <- data[-c(1:rem, (nrow(data) - rem):nrow(data)),]
+  data
 }
 
 # Apply functions ---------------------------------------------------------
@@ -138,7 +139,7 @@ df_n <- df_n %>%
          filt = map(clean, lowpass_fun))
 
 # Get all in one dataframe
-df_DO <- unnest(df_n, filt)
+df_DO <- unnest_legacy(df_n, filt)
 
 # Finally, add  back NAs for large chunks of missing data (i.e., >=1 day)
 # because the filter can't adequately fill these gaps
@@ -154,5 +155,4 @@ df_DO <- df_DO %>%
 
 
 # Save data
-write_excel_csv2(df_DO, "test.csv")
 saveRDS(df_DO, "Data/all_DO_headwaters_cleaned")
