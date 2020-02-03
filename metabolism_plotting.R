@@ -5,14 +5,9 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
-
-# It's possible to calculate "final" predictions of DO by taking observed DO 
-# at each time t-1, adding the model's prediction of dO/dt at that time, then 
-# adding the process error for that timestep to get the "final" prediction at 
-# time t. (You'll need to track the timestep-specific process errors when you 
-# fit the model if you aren't already.)
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+# setwd("D:/jake.diamond/Loire_DO")
 
 # Load libraries
 library(streamMetabolizer)
@@ -21,29 +16,79 @@ library(lubridate)
 library(dygraphs)
 
 # Load metab data
-df <- readRDS("Data/Loire_DO/metab_results_1993_2018_constrainedK")
-df_mle <- readRDS("Data/Loire_DO/metab_mle") %>%
-  pluck("metab_daily") %>%
-  rename_at(vars(-date), function(x) paste0(x,"_mle"))
-df_unconstrain <- readRDS("Data/Loire_DO/metab_results_1994_2018.rds") %>%
-  rename_at(vars(-date), function(x) paste0(x, "_uncon"))
-# Load cleaned DO data
-df_do <- readRDS("Data/all_DO_cleaned")
-
-
-# Load data for no process error
-mm_no_proc <- readRDS("Data/Loire_DO/metab_constrainedK_noproc_1997_2000")
-
-# Dataframe of all 1995-2000 metabolism estimates
-df_no_proc <- mm_no_proc[2, ] %>%
+df <- readRDS("Data/Loire_DO/metabolism_results_all_years_constrainedK_no_pool")
+df_nopool <- readRDS("Data/Loire_DO/metab_veryconstrainedK")
+df_unconstrain <- readRDS("Data/Loire_DO/metab_unconstrainedK")
+df_gpp_err_obs <- readRDS("Data/Loire_DO/metab_veryconstrainedKerr_proc_gpp_true_def_obs")
+df_go <- df_gpp_err_obs %>%
+  ungroup() %>%
   mutate(met = map(mm, predict_metab)) %>%
   unnest(met) %>%
   mutate(NPP = GPP + ER) %>%
-  left_join(mm_no_proc[2, ] %>%
+  left_join(df_gpp_err_obs %>%
+              ungroup() %>%
               mutate(parms = map(mm, get_params)) %>%
               unnest(parms) %>%
               select(date, K600.daily)) %>%
-  rename_at(vars(-date), function(x) paste0(x, "_nop"))
+  select(date, GPP, ER, NPP, K600.daily) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_go"))
+
+df_obs <- readRDS("F:/DataLocalePerso/Jake/metab_veryconstrainedK_def_obs")
+df_obs <- df_obs %>%
+  ungroup() %>%
+  mutate(met = map(mm, predict_metab)) %>%
+  unnest(met) %>%
+  mutate(NPP = GPP + ER) %>%
+  left_join(df_obs %>%
+              ungroup() %>%
+              mutate(parms = map(mm, get_params)) %>%
+              unnest(parms) %>%
+              select(date, K600.daily)) %>%
+  select(date, GPP, ER, NPP, K600.daily) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_obs"))
+# Load cleaned DO data
+df_do <- readRDS("Data/all_DO_cleaned")
+
+df_proc <- df %>%
+  ungroup() %>%
+  transmute(proc_err = map(mm, get_fit)) %>%
+  transmute(
+            proc_err_mean = map(proc_err, ~pluck(., 2))) %>%
+  unnest()
+
+df_proc2 <- df_unconstrain %>%
+  ungroup() %>%
+  transmute(proc_err = map(mm, get_fit)) %>%
+  transmute(
+    proc_err_mean = map(proc_err, ~pluck(., 2))) %>%
+  unnest()
+plot(df_proc2$err_proc_iid_mean[1:5000], df_proc$err_proc_iid_mean[1:5000])
+
+plot(df_proc$solar.time[4000:5000], df_proc2$err_proc_iid_mean[4000:5000])
+
+# Get data in dataframe format
+df_all <- df %>%
+  ungroup() %>%
+  mutate(met = map(mm, predict_metab)) %>%
+  unnest(met) %>%
+  mutate(NPP = GPP + ER) %>%
+  left_join(df %>%
+              ungroup() %>%
+              mutate(parms = map(mm, get_params)) %>%
+              unnest(parms) %>%
+              select(date, K600.daily)) %>%
+  rename_at(vars(-date), function(x) paste0(x, "_con")) %>%
+  left_join(df_unconstrain %>%
+              ungroup() %>%
+              mutate(met = map(mm, predict_metab)) %>%
+              unnest(met) %>%
+              mutate(NPP = GPP + ER) %>%
+              left_join(df_unconstrain %>%
+                          ungroup() %>%
+                          mutate(parms = map(mm, get_params)) %>%
+                          unnest(parms) %>%
+                          select(date, K600.daily)) %>%
+              rename_at(vars(-date), function(x) paste0(x, "_uncon")))
 
 # Summarize daily amplitude for DO data
 df_amp <- df_do %>%
@@ -66,11 +111,19 @@ ggplot(data = df_amp_l,
   facet_wrap(~var)
 
 # Join data
-df_all <- left_join(df, df_amp) %>%
-  left_join(df_mle) %>%
-  left_join(df_unconstrain) %>%
-  left_join(df_no_proc)
+df_all <- df_all %>%
+  ungroup() %>%
+  select(date, GPP_nop, ER_nop, NPP_nop, K600.daily_nop, GPP_uncon, ER_uncon, NPP_uncon, K600.daily_uncon) 
+df_all2 <- df_all %>%
+  filter(!(is.na(GPP_uncon))) %>%
+  select(date, ends_with("uncon")) %>%
+  left_join(filter(df_all, !(is.na(GPP_nop))) %>%
+              select(date, ends_with("nop")), by = "date")
+df_all_3 <- left_join(df_all2, df_go)
+df_all_4 <- left_join(df_all_3, df_obs)
 
+df_all <- left_join(df, df_amp)
+df
 
 # Process error time series
 (ggplot(data = df,
@@ -84,27 +137,27 @@ df_all <- left_join(df, df_amp) %>%
          height = 6,
          units = "in")
 
-(ggplot(data = df_all,
-       aes(x = GPP,
-           y = GPP_nop,
-           color = as.factor(year(date)))) +
+ggplot(data = df_all_4,
+       aes(x = K600.daily_nop,
+           y = K600.daily_uncon,
+           color = as.factor(month(date)))) +
   geom_point() + facet_wrap(~as.factor(year(date))) +
-  geom_abline(aes(slope = 1, intercept = 0)) +
-  scale_y_continuous(limits = c(0,25)) +
-  scale_x_continuous(limits = c(0,25))) %>%
-  ggsave(plot = .,
-         filename = "Figures/To share/GPP_vs_GPP_nop.tiff",
-         device = "tiff",
-         width = 8,
-         height = 6,
-         units = "in")
+  scale_color_viridis_d() +
+  geom_abline(aes(slope = 1, intercept = 0))
+
+ggsave(plot = .,
+       filename = "Figures/To share/GPPuncons_vs_GPPcons.tiff",
+       device = "tiff",
+       width = 8,
+       height = 6,
+       units = "in")
 
 (ggplot(data = df_all,
-       aes(x = amp,
-           y = GPP_nop,
-           color = as.factor(year(date)))) +
-  geom_point() + facet_wrap(~as.factor(year(date))) +
-  geom_vline(aes(xintercept = 10))) %>%
+        aes(x = amp,
+            y = GPP_nop,
+            color = as.factor(year(date)))) +
+    geom_point() + facet_wrap(~as.factor(year(date))) +
+    geom_vline(aes(xintercept = 10))) %>%
   ggsave(plot = .,
          filename = "Figures/To share/GPP_nop_vs_amplitude.tiff",
          device = "tiff",
@@ -128,39 +181,20 @@ df_l <- df %>%
            ER = ifelse(ER >=0, 0, ER),
            year = year(date)) %>%
     filter(year == 2008) %>%
-  ggplot(aes(x = date)) +
-  geom_point(aes(y = GPP), color = "dark green") +
+    ggplot(aes(x = date)) +
+    geom_point(aes(y = GPP), color = "dark green") +
     geom_point(aes(y = ER), color = "brown") +
-  geom_ribbon(aes(ymin = GPP.lower,
-                  ymax = GPP.upper),
-              alpha = 0.5,
-              fill = "dark green") +
+    geom_ribbon(aes(ymin = GPP.lower,
+                    ymax = GPP.upper),
+                alpha = 0.5,
+                fill = "dark green") +
     geom_ribbon(aes(ymin = ER.lower,
                     ymax = ER.upper),
                 alpha = 0.5,
                 fill = "brown") +
-  theme_bw() +
+    theme_bw() +
     scale_y_continuous(limits = c(-30, 40),
                        breaks = seq(-30, 40, 10))) %>%
-  ggsave(plot = .,
-         filename = "Figures/To share/GPP_timeseries_2008_compare_matt.tiff",
-         device = "tiff",
-         width = 8,
-         height = 6,
-         units = "in")
-
-# Plot time series of GPP and ER for 2008
-(df %>%
-    mutate(GPP = ifelse(GPP < 0, 0, GPP),
-           ER = ifelse(ER >=0, 0, ER),
-           year = year(date),
-           PR = GPP / abs(ER)) %>%
-    filter(year == 2008) %>%
-    ggplot(aes(x = date)) +
-    geom_point(aes(y = PR), color = "dark green") +
-    theme_bw() +
-    scale_y_continuous(limits = c(-2, 8),
-                       breaks = seq(-2, 8, 1))) %>%
   ggsave(plot = .,
          filename = "Figures/To share/GPP_timeseries_2008_compare_matt.tiff",
          device = "tiff",
@@ -189,11 +223,11 @@ df_l <- df %>%
 
 # Plot all time series
 (df_l %>%
-  ggplot(aes(x = date)) +
-  geom_line(aes(y = value,
-                color = flux)) +
-  facet_wrap(~flux, scales = "free") +
-  theme_classic()) %>%
+    ggplot(aes(x = date)) +
+    geom_line(aes(y = value,
+                  color = flux)) +
+    facet_wrap(~flux, scales = "free") +
+    theme_classic()) %>%
   ggsave(plot = .,
          filename = "Figures/To share/all_time_series.tiff",
          device = "tiff",
@@ -203,19 +237,19 @@ df_l <- df %>%
 
 # Plot cumulative years
 (df_l %>%
-  filter(flux %in% c("GPP", "ER", "NPP")) %>%
-  group_by(flux, year) %>%
-  mutate(cum = order_by(julian, cumsum(replace_na(value, 0)))) %>%
-  ggplot(aes(x = julian,
-             y = cum,
-             color = factor(year))) +
-  geom_line() +
-  facet_wrap(~flux) + 
-  scale_color_viridis_d(name = "Year") +
-  theme_bw() + 
-  theme(legend.position = "right") +
-  ylab(expression("Cumulative value (g"~O[2]~d^{-1}~m^{-2}*")")) +
-  xlab("Julian Day")) %>%
+    filter(flux %in% c("GPP", "ER", "NPP")) %>%
+    group_by(flux, year) %>%
+    mutate(cum = order_by(julian, cumsum(replace_na(value, 0)))) %>%
+    ggplot(aes(x = julian,
+               y = cum,
+               color = factor(year))) +
+    geom_line() +
+    facet_wrap(~flux) + 
+    scale_color_viridis_d(name = "Year") +
+    theme_bw() + 
+    theme(legend.position = "right") +
+    ylab(expression("Cumulative value (g"~O[2]~d^{-1}~m^{-2}*")")) +
+    xlab("Julian Day")) %>%
   ggsave(plot = .,
          filename = "Figures/To share/cumulative_years.tiff",
          device = "tiff",
@@ -232,16 +266,16 @@ df_annmag <- df_l %>%
 
 # Plot mean fluxes by year
 (df_l %>%
-  filter(flux != "K600.daily") %>%
-  ggplot(aes(x = year,
-             y = value,
-             color = flux)) +
-  stat_summary(fun.y = mean, geom = "point") + 
-  stat_summary(fun.data = mean_cl_boot, geom = "errorbar", width = 0.2) +
-  ylab(expression("Daily mean (g"~O[2]~d^{-1}~m^{-2}*")")) +
-  xlab("") +
-  theme_bw() +
-  scale_x_continuous(breaks = seq(1993, 2018, 2))) %>%
+    filter(flux != "K600.daily") %>%
+    ggplot(aes(x = year,
+               y = value,
+               color = flux)) +
+    stat_summary(fun.y = mean, geom = "point") + 
+    stat_summary(fun.data = mean_cl_boot, geom = "errorbar", width = 0.2) +
+    ylab(expression("Daily mean (g"~O[2]~d^{-1}~m^{-2}*")")) +
+    xlab("") +
+    theme_bw() +
+    scale_x_continuous(breaks = seq(1993, 2018, 2))) %>%
   ggsave(plot = .,
          filename = "Figures/To share/Daily_mean_metab_constrainedK.tiff",
          device = "tiff",
@@ -271,15 +305,15 @@ df_annmag <- df_l %>%
 
 # Plot cumulative fluxes by year
 (df_l %>%
-  filter(flux != "K600.daily") %>%
-  ggplot(aes(x = year,
-             y = value,
-             color = flux)) +
-  stat_summary(fun.y = sum, geom = "point") +
-  ylab(expression("Annual sum (g"~O[2]~d^{-1}~m^{-2}*")")) +
-  xlab("") +
-  theme_bw() +
-  scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
+    filter(flux != "K600.daily") %>%
+    ggplot(aes(x = year,
+               y = value,
+               color = flux)) +
+    stat_summary(fun.y = sum, geom = "point") +
+    ylab(expression("Annual sum (g"~O[2]~d^{-1}~m^{-2}*")")) +
+    xlab("") +
+    theme_bw() +
+    scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
   ggsave(plot = .,
          filename = "Figures/Annual_sum_metab_constrainedK.tiff",
          device = "tiff",
@@ -308,16 +342,16 @@ df_annmag <- df_l %>%
 
 # Plot k600 by year
 (df_l %>%
-  filter(flux == "K600.daily") %>%
-  ggplot(aes(x = year,
-             y = value,
-             color = flux)) +
-  stat_summary(fun.y = mean, geom = "point") + 
-  stat_summary(fun.data = mean_cl_boot, geom = "errorbar", width = 0.2) +
-  ylab(expression("Daily mean"~K[600]~"("~d^{-1}*")")) +
-  xlab("") +
-  theme_bw() +
-  scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
+    filter(flux == "K600.daily") %>%
+    ggplot(aes(x = year,
+               y = value,
+               color = flux)) +
+    stat_summary(fun.y = mean, geom = "point") + 
+    stat_summary(fun.data = mean_cl_boot, geom = "errorbar", width = 0.2) +
+    ylab(expression("Daily mean"~K[600]~"("~d^{-1}*")")) +
+    xlab("") +
+    theme_bw() +
+    scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
   ggsave(plot = .,
          filename = "Figures/k600_mean_metab_constrainedK.tiff",
          device = "tiff",

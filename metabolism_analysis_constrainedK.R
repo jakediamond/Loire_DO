@@ -21,29 +21,10 @@ library(lubridate)
 library(dygraphs)
 
 # Load metab data
-df <- readRDS("Data/Loire_DO/metab_results_1993_2018_constrainedK")
-df_mle <- readRDS("Data/Loire_DO/metab_mle") %>%
-  pluck("metab_daily") %>%
-  rename_at(vars(-date), function(x) paste0(x,"_mle"))
-df_unconstrain <- readRDS("Data/Loire_DO/metab_results_1994_2018.rds") %>%
-  rename_at(vars(-date), function(x) paste0(x, "_uncon"))
+df_met <- readRDS("Data/Loire_DO/metab_veryconstrainedK")
+
 # Load cleaned DO data
 df_do <- readRDS("Data/all_DO_cleaned")
-
-
-# Load data for no process error
-mm_no_proc <- readRDS("Data/Loire_DO/metab_constrainedK_noproc_1997_2000")
-
-# Dataframe of all 1995-2000 metabolism estimates
-df_no_proc <- mm_no_proc[2, ] %>%
-  mutate(met = map(mm, predict_metab)) %>%
-  unnest(met) %>%
-  mutate(NPP = GPP + ER) %>%
-  left_join(mm_no_proc[2, ] %>%
-              mutate(parms = map(mm, get_params)) %>%
-              unnest(parms) %>%
-              select(date, K600.daily)) %>%
-  rename_at(vars(-date), function(x) paste0(x, "_nop"))
 
 # Summarize daily amplitude for DO data
 df_amp <- df_do %>%
@@ -53,67 +34,33 @@ df_amp <- df_do %>%
   summarize(max = max(filtered, na.rm = TRUE),
             min = min(filtered, na.rm = TRUE),
             amp = max - min)
+
 # Get in long format
 df_amp_l <- df_amp %>%
   mutate(year = year(date)) %>%
   ungroup() %>%
   gather(var, val, max, min, amp)
-# Quick plot
-ggplot(data = df_amp_l,
-       aes(x = val)) +
-  geom_density(aes(fill = as.factor(year)),
-               alpha = 0.2) +
-  facet_wrap(~var)
 
 # Join data
-df_all <- left_join(df, df_amp) %>%
-  left_join(df_mle) %>%
-  left_join(df_unconstrain) %>%
-  left_join(df_no_proc)
+df_all <- left_join(df_met, df_amp)
 
-
-# Process error time series
-(ggplot(data = df,
-        aes(x = date,
-            y = mean_proc_err)) +
-    geom_point()) %>%
-  ggsave(plot = .,
-         filename = "Figures/To share/mean_proc_err.tiff",
-         device = "tiff",
-         width = 8,
-         height = 6,
-         units = "in")
-
-(ggplot(data = df_all,
-       aes(x = GPP,
-           y = GPP_nop,
-           color = as.factor(year(date)))) +
-  geom_point() + facet_wrap(~as.factor(year(date))) +
-  geom_abline(aes(slope = 1, intercept = 0)) +
-  scale_y_continuous(limits = c(0,25)) +
-  scale_x_continuous(limits = c(0,25))) %>%
-  ggsave(plot = .,
-         filename = "Figures/To share/GPP_vs_GPP_nop.tiff",
-         device = "tiff",
-         width = 8,
-         height = 6,
-         units = "in")
 
 (ggplot(data = df_all,
        aes(x = amp,
-           y = GPP_nop,
-           color = as.factor(year(date)))) +
-  geom_point() + facet_wrap(~as.factor(year(date))) +
+           y = GPP,
+           color = as.factor(month(date)))) +
+  geom_point(alpha = 0.5) + facet_wrap(~as.factor(year(date))) +
+    scale_color_viridis_d(name  = "month") +
   geom_vline(aes(xintercept = 10))) %>%
   ggsave(plot = .,
-         filename = "Figures/To share/GPP_nop_vs_amplitude.tiff",
+         filename = "Figures/GPP_vs_amplitude.tiff",
          device = "tiff",
          width = 8,
          height = 6,
          units = "in")
 
 # Get data in long format
-df_l <- df %>%
+df_l <- df_met %>%
   select(date, GPP, ER, NPP, K600.daily) %>%
   mutate(ER = ifelse(ER >=0, 0, ER),
          GPP = ifelse(GPP < 0, 0, GPP),
@@ -122,70 +69,6 @@ df_l <- df %>%
          julian = yday(date)) %>%
   gather(flux, value, -date, -year, -julian)
 
-# Plot time series of GPP and ER for 2008
-(df %>%
-    mutate(GPP = ifelse(GPP < 0, 0, GPP),
-           ER = ifelse(ER >=0, 0, ER),
-           year = year(date)) %>%
-    filter(year == 2008) %>%
-  ggplot(aes(x = date)) +
-  geom_point(aes(y = GPP), color = "dark green") +
-    geom_point(aes(y = ER), color = "brown") +
-  geom_ribbon(aes(ymin = GPP.lower,
-                  ymax = GPP.upper),
-              alpha = 0.5,
-              fill = "dark green") +
-    geom_ribbon(aes(ymin = ER.lower,
-                    ymax = ER.upper),
-                alpha = 0.5,
-                fill = "brown") +
-  theme_bw() +
-    scale_y_continuous(limits = c(-30, 40),
-                       breaks = seq(-30, 40, 10))) %>%
-  ggsave(plot = .,
-         filename = "Figures/To share/GPP_timeseries_2008_compare_matt.tiff",
-         device = "tiff",
-         width = 8,
-         height = 6,
-         units = "in")
-
-# Plot time series of GPP and ER for 2008
-(df %>%
-    mutate(GPP = ifelse(GPP < 0, 0, GPP),
-           ER = ifelse(ER >=0, 0, ER),
-           year = year(date),
-           PR = GPP / abs(ER)) %>%
-    filter(year == 2008) %>%
-    ggplot(aes(x = date)) +
-    geom_point(aes(y = PR), color = "dark green") +
-    theme_bw() +
-    scale_y_continuous(limits = c(-2, 8),
-                       breaks = seq(-2, 8, 1))) %>%
-  ggsave(plot = .,
-         filename = "Figures/To share/GPP_timeseries_2008_compare_matt.tiff",
-         device = "tiff",
-         width = 8,
-         height = 6,
-         units = "in")
-
-# Plot time series of GPP and ER for 2008
-(df %>%
-    mutate(GPP = ifelse(GPP < 0, 0, GPP),
-           ER = ifelse(ER >=0, 0, ER),
-           year = year(date),
-           PR = GPP / abs(ER)) %>%
-    filter(year == 2008) %>%
-    ggplot(aes(x = date)) +
-    geom_point(aes(y = PR), color = "dark green") +
-    theme_bw() +
-    scale_y_continuous(limits = c(-2, 8),
-                       breaks = seq(-2, 8, 1))) %>%
-  ggsave(plot = .,
-         filename = "Figures/To share/PR_timeseries_2008_compare_matt.tiff",
-         device = "tiff",
-         width = 8,
-         height = 6,
-         units = "in")
 
 # Plot all time series
 (df_l %>%
@@ -195,7 +78,7 @@ df_l <- df %>%
   facet_wrap(~flux, scales = "free") +
   theme_classic()) %>%
   ggsave(plot = .,
-         filename = "Figures/To share/all_time_series.tiff",
+         filename = "Figures/all_time_series.tiff",
          device = "tiff",
          width = 8,
          height = 6,
@@ -217,7 +100,7 @@ df_l <- df %>%
   ylab(expression("Cumulative value (g"~O[2]~d^{-1}~m^{-2}*")")) +
   xlab("Julian Day")) %>%
   ggsave(plot = .,
-         filename = "Figures/To share/cumulative_years.tiff",
+         filename = "Figures/cumulative_years.tiff",
          device = "tiff",
          width = 8,
          height = 6,

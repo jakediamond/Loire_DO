@@ -5,8 +5,8 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
 library(readxl)
@@ -52,14 +52,14 @@ df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
                                df_q$discharge.daily)
 
 
-# Load air temperature data and clean -------------------------------------
-# Don't need this right now
-# df_t <- readRDS("Data/Meteo/air_temp_hourly_1976_2019")
-# Force the correct time zone
-# df_t$datetime <- force_tz(df_t$datetime, "Etc/GMT+1")
-# 
-# compare <- left_join(df, df_t)
-# plot(compare$temp[1000:1500], compare$temp.water[1000:1500])
+# Load light data and clean -------------------------------------
+# Light data is in J/cm2/hr, need to convert to umol/m2/s
+df_light <- read_excel("Data/Meteo/radiation_dampierre.xlsx") %>%
+  select(site = NOM, datetime = DATE, light = GLO) %>%
+  mutate(light = light * 10000*2.1/3600,
+         datetime = ymd_h(datetime)) %>%
+  filter(!(site == "SANCERRE" & datetime > ymd_h("2010-08-25-00"))) %>%
+  select(-site)
 
 # DO data load and clean --------------------------------------------------
 # Load DO data and join
@@ -143,23 +143,21 @@ df_n <- df %>%
               rename(data_q = data))
 
 # Estimate K from nighttime regression
-k_test <- metab_night(
-  specs(mm_name("night")), 
-  data = filter(df, site == "dampierre") %>%
-    select(-site, -time_frame))
-saveRDS(k_test, "Data/K600_estimates_nighttime_regression_Dampierre")
-k_test <- readRDS("Data/K600_estimates_nighttime_regression_Dampierre")
-x <- (get_params(k_test))
-x %>%
-  mutate(month = month(date)) %>%
-  filter(K600.daily > 0,
-         between(month, 6, 9)) %>%
-  summarize(mean = mean(K600.daily, na.rm = T))
-summary(x)
-plot(x$date, x$K600.daily)
-
-# Save it
-saveRDS(k_test, "Data/K600_estimates_nighttime_regression_Dampierre")
+# k_test <- metab_night(
+#   specs(mm_name("night")), 
+#   data = filter(df, site == "dampierre") %>%
+#     select(-site, -time_frame))
+# x <- (get_params(k_test))
+# x %>%
+#   mutate(month = month(date)) %>%
+#   filter(K600.daily > 0,
+#          between(month, 6, 9)) %>%
+#   summarize(mean = mean(K600.daily, na.rm = T))
+# summary(x)
+# plot(x$date, x$K600.daily)
+# 
+# # Save it
+# saveRDS(k_test, "Data/K600_estimates_nighttime_regression_Dampierre")
 
 # Get O connor and dobbins estimate of K600 daily for mle
 df_d <- df_q %>%
@@ -174,23 +172,19 @@ df_d <- df_q %>%
          K600.daily = (600/s)^-0.5 * ka) %>%
   select(date, K600.daily) 
 
-summary(df_d)
-<<<<<<< HEAD
-com <- left_join(df_d, x, by = "date")
-plot(com$K600.daily.x, com$K600.daily.y)
-#
-=======
-# Compare O connor dobbins to nighttime regression to 
-com <- left_join(df_d, x, by = "date")
-plot(com$K600.daily.x, com$K600.daily.y)
+# summary(df_d)
+# # Compare O connor dobbins to nighttime regression to 
+# com <- left_join(df_d, x, by = "date")
+# plot(com$K600.daily.x, com$K600.daily.y)
 
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 # Configure the model -----------------------------------------------------
 # Choose a model structure
-# We choose a MLE model with both observation error and process error
+# We choose a MLE model with saturating light function for GPP
 # We will pool K600
-bayes_mod <- mm_name(type = 'mle')
-bayes_mod
+mle_mod <- mm_name(type = 'mle',
+                     GPP_fun = "satlight")
+                     
+mle_mod
 
 # Quick clean
 df_use <- df %>%
@@ -200,22 +194,12 @@ df_d_use <- df_d %>%
   filter(date < ymd("2018-12-31"))
 
 # Run the metabolism model on nested data ---------------------------------
-mm_mle <- metab(specs = specs("mle"),
+mm_mle <- metab(specs(mle_mod),
                 data = filter(df_use, site == "dampierre") %>%
                   select(-site, -time_frame),
                 data_daily = df_d)
 
-saveRDS(mm_mle, "Data/Loire_DO/metab_mle")
-<<<<<<< HEAD
-mm_mle <- readRDS("Data/Loire_DO/metab_mle")
-# Inspect the model -------------------------------------------------------
-mm <- predict_metab(mm_mle)
-
-ggplot(data = filter(mm,
-                     between(date,
-                             ymd("1994-01-01"),
-                             ymd("1994-12-31"))), aes(x = date,
-=======
+saveRDS(mm_mle, "Data/Loire_DO/metab_mle_satlight")
 
 # Inspect the model -------------------------------------------------------
 mm <- predict_metab(mm_mle)
@@ -243,7 +227,6 @@ mm %>%
 ggplot(data = filter(mm,
                      GPP > 0,
                      ER > 0), aes(x = date,
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
                       y = GPP)) + geom_point()
 
 mm %>%

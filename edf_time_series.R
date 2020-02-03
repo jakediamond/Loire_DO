@@ -19,17 +19,26 @@ df <- read_excel("Data/EDF/edf_1993_2000.xlsx",
                  sheet = 1,
                  col_names = c("code", "var", "datetime", "value",
                                "qc_code", "valid_code"),
+                 
                  skip = 1) %>%
-  bind_rows(read_excel("Data/EDF/edf_2008_2018.xlsx",
+  mutate(datetime = dmy_hms(datetime, tz = "UTC")) %>%
+  bind_rows(read_excel("Data/EDF/edf_2001_2007.xlsx",
                        sheet = 1,
                        col_names = c("code", "var", "datetime", "value",
                                      "qc_code", "valid_code"),
                        skip = 1)) %>%
-  bind_rows(read_excel("Data/EDF/edf_2008_2018.xlsx",
+  bind_rows((read_excel("Data/EDF/edf_2008_2018.xlsx",
+                       sheet = 1,
+                       col_names = c("code", "var", "datetime", "value",
+                                     "qc_code", "valid_code"),
+                       skip = 1)) %>%
+              mutate(datetime = dmy_hms(datetime, tz = "UTC"))) %>%
+  bind_rows((read_excel("Data/EDF/edf_2008_2018.xlsx",
                        sheet = 2,
                        col_names = c("code", "var", "datetime", "value",
                                      "qc_code", "valid_code"),
-                       skip = 1))
+                       skip = 1)) %>%
+              mutate(datetime = dmy_hms(datetime, tz = "UTC")))
 
 # Some data cleaning
 df <- df %>%
@@ -39,8 +48,7 @@ df <- df %>%
          `Température de l'eau horaire` = "T",
          `pH horaire` = "pH",
          `Oxygène dissous horaire` = "DO",
-         `Conductivité horaire` = "SC"),
-         datetime = dmy_hms(datetime, tz = "UTC")
+         `Conductivité horaire` = "SC")
   )
 
 
@@ -95,7 +103,7 @@ p <- ggplot(data = df_day,
   ylab("Mean daily value")
 
 ggsave(plot = p,
-       filename = "Figures/mean_daily_values_all_sites_both_periods.tiff",
+       filename = "Figures/mean_daily_values_all_sites_all_years.tiff",
        device = "tiff",
        width = 10,
        height = 8,
