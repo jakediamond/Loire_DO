@@ -26,7 +26,14 @@ theme_set(theme_bw(base_size=7)+
                   panel.grid.minor = element_blank()))
 
 # Load middle loire water quality data
-df <- readRDS("Data/Loire_DO/middle_loire_wq")
+df <- readRDS("Data/Loire_DO/middle_loire_wq") %>%
+  ungroup() %>%
+  group_by(solute, year, month) %>%
+  summarize(value = mean(value, na.rm = TRUE)) %>%
+  filter(year > 1979) %>%
+  ungroup() %>%
+  mutate(date = ymd(paste(year, month, "01", sep = "-"))) %>%
+  select(solute, date, value)
 
 # Load metabolism data
 df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins") %>%
@@ -35,27 +42,45 @@ df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_
          ER = ifelse(ER > 0, NA, ER),
          NEP = GPP + ER)
 
-# Combine data
+# Short function for converting to time series
+ts_conv <- function(data){
+  data = data %>%
+    arrange(date) %>%
+    na.trim() %>%
+    as.data.frame(.)
+  dat_ts = xts(x = data[, "value"],
+               order.by = data[, "date"])
+  dat_ts = na_interpolation(dat_ts, option = "stine")
+  dat_ts = as.ts(dat_ts)
+}
 
-p_ts <- df_mid_long %>%
-  group_by(solute, year, month) %>%
-  summarize(mean = mean(value, na.rm = TRUE)) %>%
-  ungroup() %>%
-  mutate(date = ymd(paste(year, month, "01", sep = "-"))) %>%
-  filter(solute == "CHLA",
-         year > 1979) %>%
-  arrange(date) %>%
-  na.trim() %>%
-  as.data.frame(.)
-p_ts <- xts(x = p_ts[, "mean"],
-            order.by = p_ts[, "date"])
-p_ts = na_interpolation(p_ts, option = "stine")
-plot(p_ts)
-ew <- generic_ews(p_ts,
-                  winsize = 20, 
-                  detrending = "first-diff",
-                  logtransform = TRUE,
-                  AR_n = TRUE)
+# Combine data
+df_ts <- df %>%
+  filter(solute %in% c("TP", "CHLA")) %>%
+  group_by(solute) %>%
+  nest() %>%
+  mutate(ts_dat = future_map(data, ts_conv),
+         ew = future_map(ts_dat, generic_ews, winsize = 20, 
+                         detrending = "first-diff",
+                         logtransform = TRUE),
+         bds = future_map(ts_dat, ~bdstest_ews(bind_cols(date = index(.), 
+                                                         value = .),
+                                               ARMAoptim = FALSE,
+                                               ARMAorder = c(1,0))))
+
+x<-diff(pluck(df_ts,3,2))
+plot(x)
+pacf(x)
+acf(x)
+bds.test(x)
+arma(x)
+ar <- arima(x, order = c(1,0,0))
+pacf(ar$residuals)
+dev.off()
+y <- as.matrix(bind_cols(date = index(x), 
+              value =coredata(x)))
+bdstest_ews(y, ARMAoptim = FALSE)
+plot(pluck(df_ts,4,1)$timeindex, pluck(df_ts,4,1)$sk)
 summary(ew)
 ew
 ch_ew <- ch_ews(p_ts)

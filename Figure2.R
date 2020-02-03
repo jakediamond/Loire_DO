@@ -181,11 +181,11 @@ df_mid_long <- df_mid_wide %>%
                          !is.na(TP),
                        p_lm$coefficients[1] + p_lm$coefficients[2] * TP,
                        PO4),
-         # BOD5 = if_else(BOD5 == 2 & 
-         #                  between(year, 2008, 2011) &
-         #                  !is.na(CHLA),
-         #                p_lm2$coefficients[1] + p_lm2$coefficients[2] * CHLA,
-         #                BOD5),
+         BOD5 = if_else(BOD5 == 2 &
+                          between(year, 2008, 2011) &
+                          !is.na(CHLA),
+                        p_lm2$coefficients[1] + p_lm2$coefficients[2] * CHLA,
+                        BOD5),
          Ppar = TP - PO4,
          NP = NO3 / PO4 * (31/14)) %>%
   pivot_longer(names_to = 'solute', values_to = "value", 
@@ -219,13 +219,14 @@ df_mid_clean <- df_mid_long %>%
 #   geom_line(aes(x = date, y = month_cv)) +
 #   facet_wrap(~solute, scales = "free_y")
 
-# Data for plots with annual moving averages
+# Data for plots with annual moving averages (get rid of one weird data point for spm)
 df_solutes <- df_mid_clean %>%
   dplyr::filter(solute %in% c("BOD5", "CHLA", 
                               "PO4", "NO3", "SPM",
                               "TP"
                               # ,"NP",  "PheoP", "Ppar"
-                              )
+                              ),
+                !(solute == "SPM" & year == 1982)
                 ) %>%
   group_by(solute, year, month) %>%
   summarize(date = mean(date),
@@ -233,20 +234,6 @@ df_solutes <- df_mid_clean %>%
   ungroup() %>%
   filter(year >= 1980) %>%
   mutate(summer = if_else(between(month, 4, 9), "summer", "winter"))
-
-# Rolling stats for discharge, too
-# df_q <- df_q %>%
-#   mutate(rm12 = rollmedian(discharge.daily, k=365, fill= NA),
-#          rq25_12 = rollapply(discharge.daily, width=365, 
-#                              FUN=function(x)
-#                                quantile(x, 0.25, na.rm=TRUE), by=1, 
-#                              by.column=TRUE, partial=TRUE, 
-#                              fill=NA, align="center"),
-#          rq75_12 = rollapply(discharge.daily, width=365, 
-#                              FUN=function(x)
-#                                quantile(x, 0.75, na.rm=TRUE), by=1, 
-#                              by.column=TRUE, partial=TRUE, 
-#                              fill=NA, align="center"))
 
 # Calculate monthly running 90-day means of DO min and max
 df_do_rm <- df_do %>%
@@ -347,7 +334,7 @@ cpts_p <- chapts %>%
               values_from = c(mean, sd)) %>%
   ungroup() %>%
   mutate(brkdate = ymd(paste0(brkyr, "-06-01")),
-         yvals = c(14, 185, 4, 0.23, 135, 0.4))
+         yvals = c(14, 185, 4.2, 0.23, 135, 0.4))
 
 # Changepoints for DO max and min
 chapts_do <- df_do_rm %>%
@@ -376,6 +363,7 @@ chapts_do <- df_do_rm %>%
             brkyr = year(round_date(brkdate, "year"))) %>%
   left_join(df_do_rm) %>%
   mutate(period = if_else(year(date) < brkyr, 1, 2)) %>%
+  filter(between(month(date), 4, 9)) %>%
   group_by(name, period, brkyr) %>%
   summarize(mean = mean(value, na.rm = TRUE),
             sd = sd(value, na.rm = TRUE)) %>%
@@ -442,25 +430,35 @@ p_chla <- ggplot(data = dplyr::filter(df_solutes,
             aes(x = brkdate,
                 y = yvals,
                 label = brkyr),
-            size = 2.5,
+            size = 2.2,
             color = "dark green") +
   geom_text(data = filter(cpts_p, solute %in% c("Chlorophyll~a")), 
-            aes(x = brkdate - years(10),
+            aes(x = ymd("1987-01-01"),
                 y = yvals,
-                label = paste(round(mean_1, 2), 
+                label = paste0("list(","`[`*",
+                               "bar(summer[1])*",
+                               "`]`==",
+                               # "*",
+                               round(mean_1, 2), 
+                               "%+-%",
                               round(sd_1, 2),
-                              sep = "%+-%")),
+                              ")")),
             parse = TRUE,
-            size = 2.5,
+            size = 2.2,
             color = "dark green") +
   geom_text(data = filter(cpts_p, solute %in% c("Chlorophyll~a")),  
-            aes(x = brkdate + years(10),
+            aes(x = ymd("2014-01-01"),
                 y = yvals,
-                label = paste(round(mean_2, 2), 
-                              round(sd_2, 2),
-                              sep = "%+-%")),
+                label = paste0("list(","`[`*",
+                               "bar(summer[2])*",
+                               "`]`==",
+                               # "*",
+                               round(mean_2, 2), 
+                               "%+-%",
+                               round(sd_2, 2),
+                               ")")),
             parse = TRUE,
-            size = 2.5,
+            size = 2.2,
             color = "dark green") +
   scale_color_manual(name = "",
                      breaks = c("summer", "winter"),
@@ -478,7 +476,7 @@ p_chla <- ggplot(data = dplyr::filter(df_solutes,
         ) +
   labs(subtitle = "A") +
   xlab("") +
-  ylab(expression("Chlorophyll a (mg "~L^{-1}*")"))
+  ylab(expression("Chlorophyll a ("*mu*g~L^{-1}*")"))
 p_chla
 
 # Macrophyte plot
@@ -546,25 +544,35 @@ p_do <- ggplot(data = df_do_rm,
             aes(x = brkdate,
                 y = yvals,
                 label = brkyr),
-            size = 2.5,
+            size = 2.2,
             show.legend = FALSE) +
   geom_text(data = chapts_do, 
-            aes(x = brkdate - years(10),
+            aes(x = ymd("1987-01-01"),
                 y = yvals,
-                label = paste(round(mean_1, 2), 
-                              round(sd_1, 2),
-                              sep = "%+-%")),
+                label = paste0("list(","`[`*",
+                               "bar(summer[1])*",
+                               "`]`==",
+                               # "*",
+                               round(mean_1*100, 0), 
+                               "%+-%",
+                               round(sd_1*100, 0),
+                               ")")),
             parse = TRUE,
-            size = 2.5,
+            size = 2.2,
             show.legend = FALSE) +
   geom_text(data = chapts_do,  
-            aes(x = brkdate + years(6),
+            aes(x = ymd("2014-01-01"),
                 y = yvals,
-                label = paste(round(mean_2, 2), 
-                              round(sd_2, 2),
-                              sep = "%+-%")),
+                label = paste0("list(","`[`*",
+                               "bar(summer[2])*",
+                               "`]`==",
+                               # "*",
+                               round(mean_2*100, 0), 
+                               "%+-%",
+                               round(sd_2*100, 0),
+                               ")")),
             parse = TRUE,
-            size = 2.5,
+            size = 2.2,
             show.legend = FALSE) +
   scale_color_manual(name = "90-d running mean",
                         breaks = c("rm_max_wk", "rm_min_wk"),
@@ -575,7 +583,7 @@ p_do <- ggplot(data = df_do_rm,
                                 "5 years"),
                    labels = date_format("%Y")) +
   theme(axis.title.x = element_blank(),
-        legend.position = c(0.15, 0.78),
+        legend.position = c(0.15, 0.7),
         legend.key.height = unit(0.2, "cm"),
         legend.background = element_rect(fill = alpha('white', 0.4))) +
   labs(subtitle = "A") +
@@ -613,31 +621,41 @@ p_solutes <- ggplot(data = filter(df_solutes,
             aes(x = brkdate,
                 y = yvals,
                 label = brkyr),
-            size = 2.5) +
+            size = 2.2) +
   geom_text(data = filter(cpts_p, solute %in% c("NO[3]^{`-`}-N",
                                                  "TP",
                                                  "PO[4]^{`3-`}-P",
                                                  "TSS",
                                                  "BOD[5]")), 
-            aes(x = brkdate - years(8),
+            aes(x = ymd("1987-01-01"),
                 y = yvals,
-                label = paste(round(mean_1, 2), 
-                              round(sd_1, 2),
-                              sep = "%+-%")),
+                label = paste0("list(","`[`*",
+                               "bar(summer[1])*",
+                               "`]`==",
+                               # "*",
+                               round(mean_1, 2), 
+                               "%+-%",
+                               round(sd_1, 2),
+                               ")")),
             parse = TRUE,
-            size = 2.5) +
+            size = 2.2) +
   geom_text(data = filter(cpts_p, solute %in% c("NO[3]^{`-`}-N",
                                                  "TP",
                                                  "PO[4]^{`3-`}-P",
                                                  "TSS",
                                                  "BOD[5]")),  
-            aes(x = brkdate + years(8),
+            aes(x = ymd("2014-01-01"),
                 y = yvals,
-                label = paste(round(mean_2, 2), 
-                              round(sd_2, 2),
-                              sep = "%+-%")),
+                label = paste0("list(","`[`*",
+                               "bar(summer[2])*",
+                               "`]`==",
+                               # "*",
+                               round(mean_2, 2), 
+                               "%+-%",
+                               round(sd_2, 2),
+                               ")")),
             parse = TRUE,
-            size = 2.5) +
+            size = 2.2) +
   facet_wrap(~solute, scales = "free_y",
              labeller = label_parsed,
              ncol = 1) +
@@ -695,8 +713,8 @@ p_solutes
 # Plot all plots
 (((p_chla / p_mac / p_c / p_do) | (p_solutes)) + plot_layout(heights = c(4, 1),
                                                             widths = c(1, 1))) %>%
-  ggsave(filename = "Figures/Middle_Loire/Figure2_v6.png",
-         device = "png",
+  ggsave(filename = "Figures/Middle_Loire/Figure2_v6.svg",
+         device = "svg",
          dpi = 300,
          height = 6,
          width = 7.25,
