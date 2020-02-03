@@ -5,9 +5,14 @@
 # 
 
 # Set working directory
+<<<<<<< HEAD
 # setwd("Z:/Loire_DO")
 # setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 setwd("D:/jake.diamond/Loire_DO")
+=======
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Load libraries
 library(readxl)
@@ -21,8 +26,13 @@ metab_inputs("bayes", "data")
 # Discharge data load and clean -----------------------------------------------------
 # Generate daily time series
 dat_seq <- data.frame(date = seq(ymd("1993-01-01"), 
+<<<<<<< HEAD
                                  ymd('2018-12-31'), 
                                  by = "days"))
+=======
+                      ymd('2018-12-31'), 
+                      by = "days"))
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Load discharge data, but this is missing 1994-1995
 df_q <- read_tsv("Data/Discharge/K4180010.txt") %>%
@@ -32,7 +42,11 @@ df_q <- read_tsv("Data/Discharge/K4180010.txt") %>%
 
 # Load 1994 and 1995 data, but need to make average daily to match
 df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
+<<<<<<< HEAD
                  sheet = 1) %>%
+=======
+                  sheet = 1) %>%
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
   bind_rows(read_xls("Data/Moatar_thesis/DAM94AMC.XLS",
                      sheet = 4)) %>%
   select(datetime = DATE, discharge = DEB) %>%
@@ -45,7 +59,11 @@ df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
   right_join(dat_seq) %>%
   filter(between(date, ymd("1993-01-01"), ymd("2000-12-31")) |
            between(date, ymd("2008-01-01"), ymd("2018-12-31"))
+<<<<<<< HEAD
   )
+=======
+         )
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Get rid of negative values
 df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
@@ -77,9 +95,15 @@ df$datetime <- force_tz(df$datetime, "Etc/GMT+1")
 # Prepare data for stream Metabolizer -------------------------------------
 # Florentina's DO.sat calculation
 df$DO.sat <- ifelse(df$temp.water == 0,
+<<<<<<< HEAD
                     0,
                     14.652 - 0.41022 * df$temp.water + 0.007991 * 
                       df$temp.water^2 - 0.000077774 * df$temp.water^3)
+=======
+                     0,
+                     14.652 - 0.41022 * df$temp.water + 0.007991 * 
+                       df$temp.water^2 - 0.000077774 * df$temp.water^3)
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Combine with light
 df <- left_join(df, df_light)
@@ -89,8 +113,13 @@ df$solar.time <- calc_solar_time(df$datetime, longitude = 2.5)
 
 # Caclculate light for periods without data (and to compare)
 df$light_est <- calc_light(solar.time = df$solar.time,
+<<<<<<< HEAD
                            latitude = 47.7,
                            longitude = 2.5)
+=======
+                       latitude = 47.7,
+                       longitude = 2.5)
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 df <- df %>%
   mutate(light = ifelse(is.na(light), light_est, light)) %>%
   select(-light_est)
@@ -114,7 +143,11 @@ df2 <- df %>%
   select(DO.obs = DO_use, temp.water, site, 
          light, depth, DO.sat, solar.time
          , time_frame
+<<<<<<< HEAD
   )
+=======
+         )
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Create periods of 4–6 years and nest data
 df_n <- df2 %>%
@@ -127,7 +160,11 @@ df_n <- df2 %>%
               group_by(time_frame) %>%
               nest() %>%
               rename(data_q = data))
+<<<<<<< HEAD
 
+=======
+  
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 # Configure the model -----------------------------------------------------
 # Choose a model structure
 # We choose a Bayesian model with both observation error and process error
@@ -151,11 +188,19 @@ met_fun <- function(data, data_q, bayes_name = bayes_mod){
   # Estimate the mean ln(k600) value for the river from O'Connor and direct 
   # measurements with floating dome
   # Theis are the hyperprior mean for k600 in log space 
+<<<<<<< HEAD
   k6 <- 0.9
   
   # Same for standard deviation, super tight prior
   k6_sd <- 0.1
   
+=======
+  k6 <- 0.7
+  
+  # Same for standard deviation, super tight prior
+  k6_sd <- 0.1
+
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
   # Set the specifications
   bayes_specs <- specs(model_name = bayes_name,
                        burnin_steps = 1000,
@@ -166,7 +211,11 @@ met_fun <- function(data, data_q, bayes_name = bayes_mod){
                        , K600_lnQ_nodes_sdlog = rep(k6_sd, 
                                                     length(brks))
   )
+<<<<<<< HEAD
   
+=======
+
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
   # Do the metabolism
   metab(specs = bayes_specs, 
         data = as.data.frame(data), 
@@ -177,19 +226,32 @@ met_fun <- function(data, data_q, bayes_name = bayes_mod){
 mm_all <- df_n %>%
   transmute(mm = map2(data, data_q, ~met_fun(data = .x,
                                              data_q = .y)
+<<<<<<< HEAD
   )
   )
 
 saveRDS(mm_all, "F:/DataLocalePerso/Jake/metab_veryconstrainedK_def_obs")
+=======
+                      )
+         )
+
+saveRDS(mm_all, "Data/Loire_DO/metab_veryconstrainedK_def_obs")
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 # Inspect the model -------------------------------------------------------
 mm <- mm_all %>%
   mutate(met = map(mm, predict_metab)) %>%
   unnest(met)
 
 gpp <- ggplot(data = mm, aes(x = date,
+<<<<<<< HEAD
                              y = GPP)) + geom_point()
 gpp
 
+=======
+                      y = GPP)) + geom_point()
+gpp
+mm_all <- readRDS("Data/Loire_DO/metab_veryconstrainedK_err_proc_gpp_true")
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 mm %>%
   mutate(year = year(date),
          month = month(date)) %>%
@@ -197,20 +259,35 @@ mm %>%
   filter(GPP > 0, ER < 0) %>%
   gather(flux, value, -year, -date, -month) %>%
   group_by(year, flux) %>%
+<<<<<<< HEAD
   summarize(avg = quantile(value, 0.75, na.rm = T)) %>%
+=======
+  summarize(avg = mean(value, na.rm = T)) %>%
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
   ggplot(aes(x = year, y = avg, color = flux)) + geom_point()
 
 rh <- mm_all[4,] %>%
   mutate(r = map(mm, get_fit)) %>%
   unnest(r)
+<<<<<<< HEAD
 select(ends_with("Rhat"))
 get_fit(mm_all)
 
+=======
+  select(ends_with("Rhat"))
+get_fit(mm_all)
+
+
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 kt <- mm_all %>%
   mutate(mk = map(mm, get_params)) %>%
   unnest(mk)
 plot(kt$K600.daily, kt$ER.daily)
+<<<<<<< HEAD
 plot(kt$date[1:365], kt$K600.daily[1:365])
+=======
+plot(kt$date, kt$K600.daily)
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 
 # Look at priors/posteriors

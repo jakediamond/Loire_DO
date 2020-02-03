@@ -147,8 +147,11 @@ k_test <- metab_night(
   specs(mm_name("night")), 
   data = filter(df, site == "dampierre") %>%
     select(-site, -time_frame))
+<<<<<<< HEAD
 saveRDS(k_test, "Data/K600_estimates_nighttime_regression_Dampierre")
 k_test <- readRDS("Data/K600_estimates_nighttime_regression_Dampierre")
+=======
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 x <- (get_params(k_test))
 x %>%
   mutate(month = month(date)) %>%

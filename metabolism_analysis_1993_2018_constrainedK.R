@@ -142,6 +142,7 @@ df_l <- df %>%
   theme_bw() +
     scale_y_continuous(limits = c(-30, 40),
                        breaks = seq(-30, 40, 10))) %>%
+<<<<<<< HEAD
   ggsave(plot = .,
          filename = "Figures/To share/GPP_timeseries_2008_compare_matt.tiff",
          device = "tiff",
@@ -162,6 +163,8 @@ df_l <- df %>%
     scale_y_continuous(limits = c(-2, 8),
                        breaks = seq(-2, 8, 1))) %>%
   ggsave(plot = .,
+=======
+  ggsave(plot = .,
          filename = "Figures/To share/GPP_timeseries_2008_compare_matt.tiff",
          device = "tiff",
          width = 8,
@@ -181,6 +184,7 @@ df_l <- df %>%
     scale_y_continuous(limits = c(-2, 8),
                        breaks = seq(-2, 8, 1))) %>%
   ggsave(plot = .,
+>>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
          filename = "Figures/To share/PR_timeseries_2008_compare_matt.tiff",
          device = "tiff",
          width = 8,
