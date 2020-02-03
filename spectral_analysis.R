@@ -5,23 +5,15 @@
 # 
 
 # Set working directory
-<<<<<<< HEAD
 # setwd("Z:/Loire_DO")
 setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
-=======
 setwd("Z:/Loire_DO")
 # setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Load libraries
 library(lubridate)
 library(tidyverse)
 library(tseries)
-<<<<<<< HEAD
-
-df <- readRDS("Data/all_DO_cleaned")
-
-=======
 library(readxl)
 
 # Load DO data
@@ -120,7 +112,6 @@ ggsave(plot = p_min_max,
        width = 12,
        height = 8)
 
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 d_p1 <- df %>%
   filter(period == 1,
          site == "dampierre") %>%
@@ -139,7 +130,6 @@ d_p2 <- df %>%
             max = max(filtered)) %>%
   ungroup()
 
-<<<<<<< HEAD
 ggplot() +
   geom_line(data = d_p2,
              aes(x = date,
@@ -149,8 +139,7 @@ ggplot() +
                  y = max))
 
 plot(d_p1$min)
-=======
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
+
 # Test for stationarity
 adf.test(d_p1$max)
 kpss.test(d_p1$min)
@@ -163,7 +152,6 @@ diff_p2_max <- diff(d_p2$max,1)
 
 adf.test(diff_p1_min)
 kpss.test(diff_p1_min)
-<<<<<<< HEAD
 
 ccf(d_p1$min, d_p1$max)
 ccf(d_p2$min, d_p2$max)
@@ -180,7 +168,6 @@ spy <- 2*x.spec$spec
 plot(spy~spx,xlab="frequency",ylab="spectral density",type="l")
 
 spec.pgram(diff_p1_max, kernel("modified.daniell", c(5,7)))
-=======
 acf(diff_p1_min)
 ccf(d_p1$min, d_p1$max)
 ccf(d_p2$min, d_p2$max)
@@ -223,4 +210,3 @@ spy <- 2*x.spec$spec
 plot(spy~spx,xlab="frequency",ylab="spectral density",type="l", xlim = c(0,10))
 
 spec.pgram(d_p2$max, kernel("modified.daniell", c(5,7)))
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba

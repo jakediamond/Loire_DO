@@ -5,14 +5,11 @@
 # 
 
 # Set working directory
-<<<<<<< HEAD
 # setwd("Z:/Loire_DO")
 # setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 setwd("D:/jake.diamond/Loire_DO")
-=======
 setwd("Z:/Loire_DO")
 # setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Load libraries
 library(zoo)

@@ -17,13 +17,10 @@ library(dygraphs)
 
 # Load metab data
 df <- readRDS("Data/Loire_DO/metab_veryconstrainedK")
-<<<<<<< HEAD
 # df_mle <- readRDS("Data/Loire_DO/metab_mle") %>%
 #   pluck("metab_daily") %>%
 #   rename_at(vars(-date), function(x) paste0(x,"_mle"))
-=======
 df_nopool <- readRDS("Data/Loire_DO/metabolism_results_all_years_constrainedK_no_pool")
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 df_unconstrain <- readRDS("Data/Loire_DO/metab_unconstrainedK")
 df_gpp_err_obs <- readRDS("Data/Loire_DO/metab_veryconstrainedKerr_proc_gpp_true_def_obs")
 df_gpp_err <- readRDS("Data/Loire_DO/metab_veryconstrainedK_err_proc_gpp_true")
@@ -39,15 +36,12 @@ df_go <- df_gpp_err_obs %>%
               select(date, K600.daily)) %>%
   select(date, GPP, ER, NPP, K600.daily) %>%
   rename_at(vars(-date), function(x) paste0(x, "_go"))
-<<<<<<< HEAD
 z<-predict_DO(pluck(df_gpp_err_obs, 2, 1))
 plot(z$solar.time[2000:2100], z$DO.obs[2000:2100])
 points(z$solar.time[2000:2100], z$DO.mod[2000:2100], col = "blue")
 points(df_proc$solar.time[1500:1600], df_proc$err_proc_iid_mean[1500:1600] +12, col = 'red')
 plot(df_proc$solar.time[1500:1600], df_proc$err_proc_iid_mean[1500:1600], col = 'red')
-=======
 
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 df_obs <- readRDS("F:/DataLocalePerso/Jake/metab_veryconstrainedK_def_obs")
 df_obs <- df_obs %>%
   ungroup() %>%
@@ -73,16 +67,12 @@ df_mod <- df_gpp_err %>%
 plot(df_mod$DO.obs[4000:5000], df_mod$DO.mod[4000:5000])
 abline(0,1)
 
-<<<<<<< HEAD
 df_proc <- df_gpp_err_obs %>%
-=======
 df_proc <- df %>%
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
   ungroup() %>%
   transmute(proc_err = map(mm, get_fit)) %>%
   transmute(
     proc_err_mean = map(proc_err, ~pluck(., 2))) %>%
-<<<<<<< HEAD
   unnest() %>%
   select(date, )
 ggplot(data = df_proc, aes(x = solar.time, y = err_proc_iid_mean)) + geom_point()
@@ -93,9 +83,7 @@ plot(df_proc$solar.time[500:600], df_proc$err_proc_iid_mean[500:600])
 plot(df_proc$solar.time[500:600], df_proc$err_proc_GPP_mean[500:600])
 plot(x$solar.time[500:505], x$err_proc_iid_mean[500:505])
 plot(x$solar.time[500:505], x$err_proc_GPP_mean[500:505])
-=======
-  unnest()
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
+
 
 df_proc2 <- df_obs %>%
   ungroup() %>%
@@ -111,9 +99,7 @@ df_proc_gpp <- df_gpp_err %>%
     proc_err_mean = map(proc_err, ~pluck(., 2))) %>%
   unnest()
 
-<<<<<<< HEAD
 df_comp <- left_join(df_proc, df_proc2, by = c("date", "solar.time"))
-=======
 df_proc_nopool <- df_nopool %>%
   ungroup() %>%
   transmute(proc_err = map(mm, get_fit)) %>%
@@ -122,7 +108,6 @@ df_proc_nopool <- df_nopool %>%
   unnest()
 
 df_comp <- left_join(df_proc, df_proc_nopool, by = c("date", "solar.time"))
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 df_comp <- left_join(df_comp, df_proc_gpp)
 plot(df_comp$solar.time[4000:5000], df_comp$err_proc_iid_mean[4000:5000] + df_comp$err_proc_GPP_mean[4000:5000] )
 plot(df_comp$err_proc_iid_mean.y, df_comp$err_proc_iid_mean+ df_comp$err_proc_GPP_mean)
@@ -141,7 +126,6 @@ df_all <- df %>%
               unnest(parms) %>%
               select(date, K600.daily)) %>%
   rename_at(vars(-date), function(x) paste0(x, "_con")) %>%
-<<<<<<< HEAD
   left_join(df_unconstrain %>%
               ungroup() %>%
               mutate(met = map(mm, predict_metab)) %>%
@@ -153,7 +137,6 @@ df_all <- df %>%
                           unnest(parms) %>%
                           select(date, K600.daily)) %>%
               rename_at(vars(-date), function(x) paste0(x, "_uncon")))
-=======
   left_join(df_nopool %>%
               rename_at(vars(-date), function(x) paste0(x, "_nopool")))
   # left_join(df_unconstrain %>%
@@ -167,7 +150,6 @@ df_all <- df %>%
   #                         unnest(parms) %>%
   #                         select(date, K600.daily)) %>%
   #             rename_at(vars(-date), function(x) paste0(x, "_uncon")))
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 
 # Summarize daily amplitude for DO data
 df_amp <- df_do %>%
@@ -216,22 +198,18 @@ df
          height = 6,
          units = "in")
 
-<<<<<<< HEAD
 ggplot(data = df_all_4,
        aes(x = GPP_nop,
            y = GPP_go,
-=======
 ggplot(data = df_all,
        aes(x = K600.daily_con,
            y = K600.daily_nopool,
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
            color = as.factor(month(date)))) +
   geom_point() + facet_wrap(~as.factor(year(date))) +
     scale_color_viridis_d() +
   geom_abline(aes(slope = 1, intercept = 0))
 
-<<<<<<< HEAD
-=======
+
 ggplot(data = df_all) +
 geom_point(aes(x = date,
            y = K600.daily_nopool),
@@ -241,7 +219,6 @@ geom_point(aes(x = date,
                                           scales = "free") +
   scale_color_viridis_d()
 
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
   ggsave(plot = .,
          filename = "Figures/To share/GPPuncons_vs_GPPcons.tiff",
          device = "tiff",
@@ -249,9 +226,6 @@ geom_point(aes(x = date,
          height = 6,
          units = "in")
 
-<<<<<<< HEAD
-=======
-  
 # Autocorrelation
   ggplot(data = df_do,
          aes(x = DO_use,
@@ -269,7 +243,6 @@ geom_point(aes(x = date,
     scale_color_viridis_d() +
     geom_abline(aes(slope = 1, intercept = 0))
   
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
 (ggplot(data = df_all,
        aes(x = amp,
            y = GPP_nop,
@@ -284,11 +257,8 @@ geom_point(aes(x = date,
          units = "in")
 
 # Get data in long format
-<<<<<<< HEAD
 df_l <- df %>%
-=======
 df_l <- df_nopool %>%
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
   select(date, GPP, ER, NPP, K600.daily) %>%
   mutate(ER = ifelse(ER >=0, 0, ER),
          GPP = ifelse(GPP < 0, 0, GPP),
@@ -351,11 +321,8 @@ df_l <- df_nopool %>%
   facet_wrap(~flux, scales = "free") +
   theme_classic()) %>%
   ggsave(plot = .,
-<<<<<<< HEAD
          filename = "Figures/To share/all_time_series.tiff",
-=======
          filename = "Figures/To share/all_time_series_nopool.tiff",
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
          device = "tiff",
          width = 8,
          height = 6,
@@ -377,11 +344,8 @@ df_l <- df_nopool %>%
   ylab(expression("Cumulative value (g"~O[2]~d^{-1}~m^{-2}*")")) +
   xlab("Julian Day")) %>%
   ggsave(plot = .,
-<<<<<<< HEAD
          filename = "Figures/To share/cumulative_years.tiff",
-=======
          filename = "Figures/To share/cumulative_years_nopool.tiff",
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
          device = "tiff",
          width = 8,
          height = 6,
@@ -407,11 +371,8 @@ df_annmag <- df_l %>%
   theme_bw() +
   scale_x_continuous(breaks = seq(1993, 2018, 2))) %>%
   ggsave(plot = .,
-<<<<<<< HEAD
          filename = "Figures/To share/Daily_mean_metab_constrainedK.tiff",
-=======
          filename = "Figures/To share/Daily_mean_metab_constrainedK_nopool.tiff",
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
          device = "tiff",
          width = 8,
          height = 6,
@@ -431,11 +392,8 @@ df_annmag <- df_l %>%
     theme_bw() +
     scale_x_continuous(breaks = seq(1994, 2018, 2))) %>%
   ggsave(plot = .,
-<<<<<<< HEAD
          filename = "Figures/To share/Daily_mean_summer_metab_constrainedK.tiff",
-=======
          filename = "Figures/To share/Daily_mean_summer_metab_constrainedK_nopool.tiff",
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
          device = "tiff",
          width = 8,
          height = 6,
@@ -672,8 +630,6 @@ df_l %>%
   geom_histogram(aes(value, fill = as.factor(year)), alpha = 0.3) +
   facet_wrap(~flux, scales = "free") +
   scale_fill_viridis_d()
-<<<<<<< HEAD
-=======
 # df_nopool <- df_met
 library(lmtest)
 grangertest(diff(df_nopool$GPP[8900:9032]),diff(df_nopool$ER[8900:9032], order = 2))
@@ -697,4 +653,3 @@ x <- dplyr::select(ungroup(df_nopool), GPP) %>%
 library(earlywarnings)
 ch_ews(timeseries = x[1:100, ])
 generic_ews(x[1:720,])
->>>>>>> b932b3b7e82798c70c22dee711ea77fd6bc70bba
