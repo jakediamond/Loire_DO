@@ -54,35 +54,97 @@ ts_conv <- function(data){
   dat_ts = as.ts(dat_ts)
 }
 
-# Combine data
+# Combine and analyze water quality data
 df_ts <- df %>%
   filter(solute %in% c("TP", "CHLA")) %>%
+  # filter(between(month(date), 5, 9)) %>%
   group_by(solute) %>%
   nest() %>%
   mutate(ts_dat = future_map(data, ts_conv),
-         ew = future_map(ts_dat, generic_ews, winsize = 20, 
+         ew = future_map(ts_dat, generic_ews, winsize = 30, 
                          detrending = "first-diff",
-                         logtransform = TRUE),
-         bds = future_map(ts_dat, ~bdstest_ews(bind_cols(date = index(.), 
-                                                         value = .),
-                                               ARMAoptim = FALSE,
-                                               ARMAorder = c(1,0))))
+                         logtransform = TRUE))
+         , ch = future_map(ts_dat, ~ch_ews(bind_cols(date = index(.), 
+                                                          value = .))))
+         # ,bds = future_map(ts_dat, ~bdstest_ews(bind_cols(date = index(.), 
+         #                                                 value = .),
+         #                                       ARMAoptim = FALSE,
+         #                                       ARMAorder = c(1,0))))
 
-x<-diff(pluck(df_ts,3,2))
-plot(x)
-pacf(x)
-acf(x)
-bds.test(x)
-arma(x)
-ar <- arima(x, order = c(1,0,0))
-pacf(ar$residuals)
-dev.off()
-y <- as.matrix(bind_cols(date = index(x), 
-              value =coredata(x)))
-bdstest_ews(y, ARMAoptim = FALSE)
-plot(pluck(df_ts,4,1)$timeindex, pluck(df_ts,4,1)$sk)
-summary(ew)
-ew
+
+# Analyze metabolism data
+df_ts_met <- df_met %>%
+  filter(between(month(date), 5, 9)) %>%
+  select(-K600.daily, -NPP) %>%
+  pivot_longer(cols = c(GPP, ER, NEP), names_to = "flux") %>%
+  group_by(flux) %>%
+  nest() %>%
+  mutate(ts_dat = future_map(data, ts_conv),
+         ew = future_map(ts_dat, generic_ews, winsize = 30, 
+                         detrending = "first-diff",
+                         logtransform = FALSE))
+         # , bds = future_map(ts_dat, ~bdstest_ews(bind_cols(date = index(.), 
+         #                                                 value = .),
+         #                                       ARMAoptim = FALSE,
+         #                                       ARMAorder = c(1,0))))
+
+# function to get time indices related to datetimes
+index_fun <- function(ts_data, data){
+  ts_data = tibble(timeindex = index(ts_data),
+                   value = as.numeric(ts_data))
+  dat = left_join(ts_data, data, by = "value")
+}
+
+# Get a dataframe of timeindices
+df_ind <- df_ts_met %>%
+  transmute(pdat = future_map2(ts_dat, data, index_fun)) %>%
+  unnest(cols = c(pdat)) %>%
+  select(-value)
+
+# Plot early warning signals of GPP/ER/NEP
+df_ts_plots <- df_ts_met %>%
+  mutate(pdat = future_map2(ts_dat, data, index_fun)) %>%
+  select(-data, -ts_dat, -pdat) %>%
+  unnest(cols = c(ew)) %>%
+  pivot_longer(cols = -c(flux, timeindex)) %>%
+  left_join(df_ind,
+            by = c("timeindex",
+                   "flux")) %>%
+  ggplot(.) + 
+  geom_line(aes(x = date, y = value,
+                color = flux)) +
+  facet_wrap(~name, scales = "free_y") 
+
+  
+# Do the same and add CHLA
+df_ind_solutes <- df_ts %>%
+  transmute(pdat = future_map2(ts_dat, data, index_fun)) %>%
+  unnest(cols = c(pdat)) %>%
+  select(-value)
+  
+x <- df_ts %>%
+  mutate(pdat = future_map2(ts_dat, data, index_fun)) %>%
+  select(-data, -ts_dat, -pdat) %>%
+  unnest(cols = c(ew)) %>%
+  pivot_longer(cols = -c(solute, timeindex)) %>%
+  left_join(df_ind_solutes,
+            by = c("timeindex",
+                   "solute"))
+
+df_ts_plots +
+  stat_smooth(data = x,
+            aes(x = date,
+                y = value,
+                color = solute), linetype = "dashed",
+            method = "loess") +
+  facet_wrap(~name, scales = "free_y")
+
+
+mutate(pdat = future_map2(data, ew, ~left_join(.x, .y) %>%
+                            pivot_longer(cols = -c(date, timeindex, value))))
+
+
+
 ch_ew <- ch_ews(p_ts)
 ch_ew
 ch_ew$cusum <- cumsum(ch_ew$test.result)
@@ -137,8 +199,3 @@ bps <- ts_dat %>%
   unnest(cols = confints)
 pluck(bps, 5,4)
 x <-pluck(bps, 2,4)
-,
-cpt = future_map(cps, pluck, cpts),
-ests = future_map(cps, pluck, param.est),
-dates = future_map2(data, cpt, slice)) %>%
-  select(solute, dates, ests)
