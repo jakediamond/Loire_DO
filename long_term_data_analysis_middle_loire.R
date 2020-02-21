@@ -1110,20 +1110,20 @@ df_ts_p_scale <- df_ts_p %>%
   scale()
 
 (ggplot(df_ts_p,
-       aes(x = date,
-           y = value,
-           color = type)) +
-  geom_line() +
-  facet_grid(rows = vars(name), scales = "free_y") + 
+        aes(x = date,
+            y = value,
+            color = type)) +
+    geom_line() +
+    facet_grid(rows = vars(name), scales = "free_y") + 
     scale_color_manual(name = "",
                        values = c("blue",
                                   "red")) +
-  scale_x_date(date_breaks = "1 years",
-               limits = c(ymd("1993-01-01"),
-                          ymd("2018-12-31")),
-               date_labels = "%Y") +
+    scale_x_date(date_breaks = "1 years",
+                 limits = c(ymd("1993-01-01"),
+                            ymd("2018-12-31")),
+                 date_labels = "%Y") +
     geom_hline(yintercept = 0) +
-  theme_bw(base_size=7) +
+    theme_bw(base_size=7) +
     theme(axis.title.x = element_blank(),
           panel.grid.minor = element_blank())) %>%
   ggsave(filename = "Figures/Middle_Loire/decomposition_gpp_discharge.png",
@@ -1182,26 +1182,26 @@ df_met_p <- df_met_sum %>%
                           "01",
                           sep = "-")))
 (ggplot(data = df_met_p,
-       aes(x = date,
-           y = med)) + 
-  theme_bw() + geom_line() +
-  scale_x_date(limits = c(ymd("1993-01-01"), ymd("2020-01-01")),
-               breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
-                            "5 years"),
-               minor_breaks = seq(ymd("1993-01-01"), ymd("2020-01-01"),
-                                  "1 years"),
-               labels = date_format("%Y")) +
-  facet_wrap(~flux, ncol = 1, scales = "free_y") + 
-  theme(axis.title.x = element_blank()) +
-  xlab("") +
-  ylab(expression(atop("Flux", "(mg"~O[2]~m^2*d^{-1}*")")))) %>%
+        aes(x = date,
+            y = med)) + 
+    theme_bw() + geom_line() +
+    scale_x_date(limits = c(ymd("1993-01-01"), ymd("2020-01-01")),
+                 breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
+                              "5 years"),
+                 minor_breaks = seq(ymd("1993-01-01"), ymd("2020-01-01"),
+                                    "1 years"),
+                 labels = date_format("%Y")) +
+    facet_wrap(~flux, ncol = 1, scales = "free_y") + 
+    theme(axis.title.x = element_blank()) +
+    xlab("") +
+    ylab(expression(atop("Flux", "(mg"~O[2]~m^2*d^{-1}*")")))) %>%
   ggsave(filename = "Figures/Middle_Loire/metab_monthly_median.png",
          device = "png",
          width = 6,
          height = 6,
          units = "in",
          dpi = 300)
-  
+
 
 
 # Discharge/GPP example plots ---------------------------------------------

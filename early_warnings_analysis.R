@@ -15,10 +15,10 @@ library(furrr)
 library(patchwork)
 library(xts)
 library(readxl)
-library(changepoint)
+library(earlywarnings)
 library(imputeTS)
 library(tidyverse)
-library(earlywarnings)
+
 
 # Set the plotting theme
 theme_set(theme_bw(base_size=7)+
@@ -51,21 +51,25 @@ ts_conv <- function(data){
   dat_ts = xts(x = data[, "value"],
                order.by = data[, "date"])
   dat_ts = na_interpolation(dat_ts, option = "stine")
-  dat_ts = as.ts(dat_ts)
+  dat_ts = na.trim(diff(diff(dat_ts), lag = 180))
+  # dat_ts = as.ts(dat_ts)
 }
-
+x <- diff(df_met$GPP)
+plot(x)
+y <- diff(x, lag = 365)
+plot(y)
 # Combine and analyze water quality data
 df_ts <- df %>%
   filter(solute %in% c("TP", "CHLA")) %>%
-  # filter(between(month(date), 5, 9)) %>%
+  filter(between(month(date), 4, 9)) %>%
   group_by(solute) %>%
   nest() %>%
   mutate(ts_dat = future_map(data, ts_conv),
-         ew = future_map(ts_dat, generic_ews, winsize = 30, 
+         ew = future_map(ts_dat, generic_ews, winsize = 40, 
                          detrending = "first-diff",
                          logtransform = TRUE))
-         , ch = future_map(ts_dat, ~ch_ews(bind_cols(date = index(.), 
-                                                          value = .))))
+         # , ch = future_map(ts_dat, ~ch_ews(bind_cols(date = index(.), 
+         #                                                  value = .))))
          # ,bds = future_map(ts_dat, ~bdstest_ews(bind_cols(date = index(.), 
          #                                                 value = .),
          #                                       ARMAoptim = FALSE,
@@ -74,14 +78,14 @@ df_ts <- df %>%
 
 # Analyze metabolism data
 df_ts_met <- df_met %>%
-  filter(between(month(date), 5, 9)) %>%
+  filter(between(month(date), 4, 9)) %>%
   select(-K600.daily, -NPP) %>%
   pivot_longer(cols = c(GPP, ER, NEP), names_to = "flux") %>%
   group_by(flux) %>%
   nest() %>%
   mutate(ts_dat = future_map(data, ts_conv),
-         ew = future_map(ts_dat, generic_ews, winsize = 30, 
-                         detrending = "first-diff",
+         ew = future_map(ts_dat, generic_ews, winsize = 20, 
+                         # detrending = "first-diff",
                          logtransform = FALSE))
          # , bds = future_map(ts_dat, ~bdstest_ews(bind_cols(date = index(.), 
          #                                                 value = .),
@@ -89,41 +93,36 @@ df_ts_met <- df_met %>%
          #                                       ARMAorder = c(1,0))))
 
 # function to get time indices related to datetimes
-index_fun <- function(ts_data, data){
-  ts_data = tibble(timeindex = index(ts_data),
+index_fun <- function(ts_data){
+  ts_data = tibble(date = index(ts_data),
+                   timeindex = row_number(date),
                    value = as.numeric(ts_data))
-  dat = left_join(ts_data, data, by = "value")
 }
 
 # Get a dataframe of timeindices
 df_ind <- df_ts_met %>%
-  transmute(pdat = future_map2(ts_dat, data, index_fun)) %>%
+  transmute(pdat = future_map(ts_dat, index_fun)) %>%
   unnest(cols = c(pdat)) %>%
   select(-value)
 
 # Plot early warning signals of GPP/ER/NEP
-df_ts_plots <- df_ts_met %>%
-  mutate(pdat = future_map2(ts_dat, data, index_fun)) %>%
+met_plot_data <- df_ts_met %>%
+  mutate(pdat = future_map(ts_dat, index_fun)) %>%
   select(-data, -ts_dat, -pdat) %>%
   unnest(cols = c(ew)) %>%
   pivot_longer(cols = -c(flux, timeindex)) %>%
   left_join(df_ind,
             by = c("timeindex",
-                   "flux")) %>%
-  ggplot(.) + 
-  geom_line(aes(x = date, y = value,
-                color = flux)) +
-  facet_wrap(~name, scales = "free_y") 
+                   "flux"))
 
-  
 # Do the same and add CHLA
 df_ind_solutes <- df_ts %>%
-  transmute(pdat = future_map2(ts_dat, data, index_fun)) %>%
+  transmute(pdat = future_map(ts_dat, index_fun)) %>%
   unnest(cols = c(pdat)) %>%
   select(-value)
   
-x <- df_ts %>%
-  mutate(pdat = future_map2(ts_dat, data, index_fun)) %>%
+sol_plot_data <- df_ts %>%
+  mutate(pdat = future_map(ts_dat, index_fun)) %>%
   select(-data, -ts_dat, -pdat) %>%
   unnest(cols = c(ew)) %>%
   pivot_longer(cols = -c(solute, timeindex)) %>%
@@ -131,13 +130,22 @@ x <- df_ts %>%
             by = c("timeindex",
                    "solute"))
 
-df_ts_plots +
-  stat_smooth(data = x,
+(ggplot() + 
+  geom_line(data = filter(met_plot_data, name != "cv"),
+            aes(x = date, y = value,
+                color = flux)) +
+  facet_wrap(~name, scales = "free_y")) %>%
+  ggsave(filename = "earlywarnings.png",
+         dpi = 300,
+         width = 8,
+         height = 6,
+         units = "in")
+  geom_line(data = filter(sol_plot_data, name != "cv"),
             aes(x = date,
                 y = value,
-                color = solute), linetype = "dashed",
-            method = "loess") +
-  facet_wrap(~name, scales = "free_y")
+                color = solute),
+            linetype = "dashed") +
+  scale_color_viridis_d(option = "magma")
 
 
 mutate(pdat = future_map2(data, ew, ~left_join(.x, .y) %>%
@@ -199,3 +207,39 @@ bps <- ts_dat %>%
   unnest(cols = confints)
 pluck(bps, 5,4)
 x <-pluck(bps, 2,4)
+
+
+# Rolling cross correlation
+df_ccf <- tibble(date = index(pluck(df_ts_met,3,1)),
+                 gpp = pluck(df_ts_met, 3, 1),
+                 er = pluck(df_ts_met, 3, 2))
+
+x <- df_ccf %>%
+  mutate(cc = rollapply())
+
+x <- rollapply(df_ccf, 30 ,function(x) ccf(x[,1],x[,2],
+                                           lag.max = 1,
+                                           
+                                           ), by.column=FALSE)
+y <- as.tibble(x)
+pluck(y$acf,1,2)
+plot(map_dbl(y$acf,~pluck(., 2)))
+library(TTR)
+library(tidyquant)
+z <- df_ccf %>%
+  filter(between(month(date), 5, 7)) %>%
+  mutate(lag_gpp = diff(lag(gpp)),
+         er_mag = diff(abs(er))) %>%
+  tq_mutate_xy(x = lag_gpp,
+               y = er_mag,
+               mutate_fun = runCor,
+               n = 30,
+               use = "pairwise.complete.obs",
+               col_rename = "roll_ccf") %>%
+  group_by(year(date), month(date)) %>%
+  summarize(meanroll = mean(roll_ccf, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(rn = row_number())
+plot(z$date, z$roll_ccf)
+plot(z$rn, z$meanroll, "line")
+dev.off()

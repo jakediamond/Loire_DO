@@ -16,33 +16,11 @@ library(readxl)
 library(hydrostats)
 
 # Load Q data
-# Generate daily time series
-dat_seq <- data.frame(Date = seq(ymd("1993-01-01"), 
-                                 ymd('2018-12-31'), 
-                                 by = "days"))
-# Load discharge data, but this is missing 1994-1995
-df_q <- read_tsv("Data/Discharge/K4180010.txt") %>%
-  mutate(date = ymd(paste(Annee, Mois, Jour, sep = "-"))) %>%
-  select(Q = Qm3s, Date = date)
-
-# Load 1994 and 1995 data, but need to make average daily to match
-df_q <- read_xls("Data/Moatar_thesis/DAM95AMC.XLS",
-                 sheet = 1) %>%
-  bind_rows(read_xls("Data/Moatar_thesis/DAM94AMC.XLS",
-                     sheet = 4)) %>%
-  select(datetime = DATE, Q = DEB) %>%
-  mutate(Date = date(datetime)) %>%
-  group_by(Date) %>%
-  summarize(Q = mean(Q, na.rm = TRUE)) %>%
-  # drop_na() %>%
-  bind_rows(df_q) %>%
-  arrange(Date) %>%
-  right_join(dat_seq) %>%
-  filter(between(Date, ymd("1993-01-01"), ymd("2018-12-31"))
-  ) %>%
-  distinct() %>%
-  mutate(Q = ifelse(Q < 0, NA, Q),
-         Date = as.POSIXct(Date))
+# Load discharge data
+df_q <- readRDS("Data/Discharge/dampierre_discharge_for_metab") %>%
+  mutate(Q = ifelse(discharge.daily < 0, NA, discharge.daily),
+         Date = as.POSIXct(date)) %>%
+  select(Q, Date)
 
 # saveRDS(df_q, "Data/Discharge/dampierre_discharge")
 
@@ -53,7 +31,11 @@ df_q_stat <- df_q %>%
   mutate(ls = map(data, low.spells, threshold = 200)) %>%
   unnest(ls)
 
-df_q_stat <- df_q %>%
+df_lowflows <- df_q_stat %>%
+  select(year = `year(Date)`, lf_dur = max.low.duration)
+saveRDS(df_lowflows, "Data/Discharge/low_flow_duration")
+
+df_q_stat2 <- df_q %>%
   mutate(threshold = ifelse(Q < 200, 1, 0)) %>%
   group_by(year(Date)) %>%
   summarize(run = rle(df_q_stat$threshold))

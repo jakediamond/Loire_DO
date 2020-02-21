@@ -9,6 +9,7 @@ setwd("Z:/Loire_DO")
 
 # Load libraries
 library(tidyverse)
+library(lubridate)
 library(ggrepel)
 library(scales)
 library(patchwork)
@@ -63,7 +64,7 @@ df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_
          units = "cm")
 
 
-df_met %>%
+fingerprint <- df_met %>%
   mutate(month = month(date),
          year = year(date),
          GPP = ifelse(GPP < 0, NA, GPP),
@@ -72,13 +73,119 @@ df_met %>%
   ungroup() %>%
   filter(between(month, 4, 10)) %>%
   ggplot(aes(x=GPP, y=ER) ) +
-  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
-  stat_density_2d(aes(fill = ..level..), geom = "polygon", colour="white") +
-  # scale_x_continuous(expand = c(0, 20)) +
-  # scale_y_continuous(expand = c(-20, 0)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE, alpha =0.3)  +
+  stat_density_2d(aes(fill = ..level..), geom = "polygon", colour="white", alpha =0.3) +
+  scale_fill_viridis_c() +
+  scale_x_continuous(limits = c(0, 20)) +
+  scale_y_continuous(limits = c(-20, 0)) +
   theme(
     legend.position='none'
   )
+x <- df_met %>%
+  mutate(month = month(date),
+         year = year(date),
+         GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NPP = GPP + ER) %>%
+  ungroup() %>%
+  filter(between(month, 5, 9)) %>%
+  group_by(year) %>%
+  summarize(GPP_mean = mean(GPP, na.rm = TRUE),
+            GPP_sd = sd(GPP, na.rm = TRUE),
+            GPP_n= n(),
+            ER_mean = mean(ER, na.rm = TRUE),
+            ER_sd = sd(ER, na.rm = TRUE),
+            ER_n= n()) %>%
+  mutate(GPP_se = GPP_sd / sqrt(GPP_n),
+         lower.ci.GPP = GPP_mean - qt(1 - (0.05 / 2), GPP_n - 1) * GPP_se,
+         upper.ci.GPP = GPP_mean + qt(1 - (0.05 / 2), GPP_n - 1) * GPP_se,
+         ER_se = ER_sd / sqrt(ER_n),
+         lower.ci.ER = ER_mean - qt(1 - (0.05 / 2), ER_n - 1) * ER_se,
+         upper.ci.ER = ER_mean + qt(1 - (0.05 / 2), ER_n - 1) * ER_se)
+
+(fingerprint + 
+  geom_point(data = x, aes(x = GPP_mean,
+                 y = ER_mean,
+                 color = year)) +
+  geom_text_repel(data = x, aes(x = GPP_mean,
+                                y = ER_mean,
+                                label = year,
+                                color = year)) +
+  # geom_errorbar(aes(ymax = upper.ci.ER,
+  #                   ymin = lower.ci.ER)) +
+  # geom_errorbarh(aes(xmax = upper.ci.GPP,
+  #                    xmin = lower.ci.GPP)) +
+  guides(color = FALSE) +
+  scale_color_viridis_c(option = "magma") +
+  geom_abline(slope = -1, intercept = 0) +
+  theme_bw(base_size=7) +
+  xlab(expression(GPP~(g~O[2]~m^{-2}~d^{-1})))+
+  ylab(expression(ER~(g~O[2]~m^{-2}~d^{-1})))) %>%
+  ggsave(filename = "metab_fingerprint.png",
+         dpi = 300,
+         width = 6,
+         height = 6,
+         units = 'in')  
+fingerprint + x
+
+
+
+nep <- df_met %>%
+  mutate(month = month(date),
+         year = year(date),
+         GPP = ifelse(GPP < 0, NA, GPP),
+         ER = ifelse(ER > 0, NA, ER),
+         NEP = GPP + ER) %>%
+  ungroup() %>%
+  filter(between(month, 4, 9)) %>%
+  group_by(year) %>%
+  summarize(NEP_mean = mean(NEP, na.rm = TRUE),
+            NEP_sd = sd(GPP, na.rm = TRUE),
+            NEP_n= n()) %>%
+  mutate(NEP_se = NEP_sd / sqrt(NEP_n),
+         lower.ci.NEP = NEP_mean - qt(1 - (0.05 / 2), NEP_n - 1) * NEP_se,
+         upper.ci.NEP = NEP_mean + qt(1 - (0.05 / 2), NEP_n - 1) * NEP_se) %>%
+  ggplot(aes(x = year,
+             y = NEP_mean,
+             color = year)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower.ci.NEP, ymax = upper.ci.NEP), width =0.2)  +
+    geom_hline(yintercept = 0) +
+  scale_color_viridis_c(option = "magma") +
+  # geom_text_repel(aes(label = year)) +
+  # geom_errorbar(aes(ymax = upper.ci.ER,
+  #                   ymin = lower.ci.ER)) +
+  # geom_errorbarh(aes(xmax = upper.ci.GPP,
+  #                    xmin = lower.ci.GPP)) +
+  guides(color = FALSE) +
+  # geom_abline(slope = -1, intercept = 0) +
+  theme_bw(base_size=7) +
+  theme() +
+  xlab("")+
+  ylab(expression(NEP~(g~O[2]~m^{-2}~d^{-1})))
+
+
+((fp / nep) +plot_layout(heights = c(3, 1),
+                       widths = c(1, 1))) %>%
+  ggsave(filename = "nep_witherrors.png",
+         device = "png",
+         dpi = 300,
+         height = 6,
+         width = 7.25,
+         units = "in")
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -141,3 +248,26 @@ df_met %>%
 
 ggplot(data = filter(df_mid_clean, solute == "CHLA"),
        aes(x = date, y = value)) + geom_point()
+
+
+
+
+
+fp <- fingerprint + 
+  geom_point(data = x, aes(x = GPP_mean,
+                           y = ER_mean,
+                           color = year)) +
+  geom_text_repel(data = x, aes(x = GPP_mean,
+                                y = ER_mean,
+                                label = year,
+                                color = year)) +
+  # geom_errorbar(aes(ymax = upper.ci.ER,
+  #                   ymin = lower.ci.ER)) +
+  # geom_errorbarh(aes(xmax = upper.ci.GPP,
+  #                    xmin = lower.ci.GPP)) +
+  guides(color = FALSE) +
+  scale_color_viridis_c(option = "magma") +
+  geom_abline(slope = -1, intercept = 0) +
+  theme_bw(base_size=7) +
+  xlab(expression(GPP~(g~O[2]~m^{-2}~d^{-1})))+
+  ylab(expression(ER~(g~O[2]~m^{-2}~d^{-1})))
