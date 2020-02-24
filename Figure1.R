@@ -204,7 +204,7 @@ lm_dat2 <- filter(df_mid_wide,
 p_lm2 <- lm(lm_dat2$BOD5~lm_dat2$CHLA)
 # p_lm2
 
-# Estimate BOD5 for years 2008-2011
+# Estimate BOD5, PO4 for years 2008-2011
 df_mid_long <- df_mid_wide %>%
   mutate(PO4 = if_else((PO4 == (0.1* 30.97 / 94.97) | 
                           PO4 == (0.05* 30.97 / 94.97)) & 
@@ -357,26 +357,62 @@ ts_conv <- function(data, log = TRUE, type = "solute"){
 }
 
 # Turn into time series and analyze
-chapts <- ts_dat %>%
-  mutate(ts = future_map(data, ts_conv),
-         cps = future_map(ts, cpt.meanvar),
-         cpt = future_map(cps, pluck, cpts),
-         ests = future_map(cps, pluck, param.est),
-         dates = future_map2(data, cpt, slice)) %>%
-  select(solute, dates, ests) %>%
-  hoist(dates,
-        brkdate = "date") %>%
-  ungroup() %>%
-  unnest_wider(ests) %>%
-  hoist(variance, 
-        variance1 = 1L,
-        variance2 = 2L) %>%
-  ungroup() %>%
-  hoist(mean,
-        mean1 = 1L,
-        mean2 = 2L) %>%
-  select(-dates)
+# chapts <- ts_dat %>%
+#   mutate(ts = future_map(data, ts_conv),
+#          cps = future_map(ts, cpt.meanvar),
+#          cpt = future_map(cps, pluck, cpts),
+#          ests = future_map(cps, pluck, param.est),
+#          dates = future_map2(data, cpt, slice)) %>%
+#   select(solute, dates, ests) %>%
+#   hoist(dates,
+#         brkdate = "date") %>%
+#   ungroup() %>%
+#   unnest_wider(ests) %>%
+#   hoist(variance, 
+#         variance1 = 1L,
+#         variance2 = 2L) %>%
+#   ungroup() %>%
+#   hoist(mean,
+#         mean1 = 1L,
+#         mean2 = 2L) %>%
+#   select(-dates)
 
+# Turn into time series and analyze
+library(mcp)
+cla <- pluck(ts_dat, 2, 4) %>%
+  mutate(ind = row_number(),
+         cla = log(na_interpolation(value, option = "stine"))) %>%
+  na.trim()
+model = list(
+  cla ~ 1 + ind + ar(1) + sigma(1),  # int_1, ar_1
+  ~ 1 + ind + ar(1) + sigma(1) # time_2, ar1_2
+)
+fit_mcp = mcp(model, data = cla)
+
+plot(fit_mcp)
+summary(fit_mcp)
+library(EnvCpt)
+fit_envcpt = envcpt(na.trim(cla)$cla)
+fit_envcpt$summary
+plot(fit_envcpt)
+fit_envcpt$meancpt@cpts
+fit_envcpt$meancpt@param.est
+dat <- ts_dat %>%
+    mutate(ts = future_map(data, ts_conv),
+           tsd = future_map(ts, as.vector)) %>%
+  select(solute, tsd) %>% 
+  unnest(tsd) %>%
+  mutate(ind = row_number()) %>%
+  ungroup()
+
+model = list(
+  tsd ~ (1|solute) + ar(1),  # int_1
+  1 + (1|solute) ~ 0 + ind  # cp_1, cp_1_sd, cp_1_id[i]
+)
+fit = mcp(model, data = dat)
+plot(fit, facet_by="solute", ncol = 3)
+ranef(fit)
+plot_pars(fit, pars = "varying", type = "trace", ncol=3)
 # Get data ready for plot, only want to show the summer estimates
 cpts_p <- chapts %>%
   transmute(solute = solute,
@@ -773,52 +809,20 @@ p_solutes <- ggplot(data = filter(df_solutes,
   ylab(expression("Concentration (mg "~L^{-1}*")"))
 p_solutes
 
-# Plot discharge data
-# p_q <- ggplot(data = df_q) +
-#   geom_line(aes(x = date,
-#                 y = rm12)) +
-#   # geom_ribbon(aes(x = date,
-#   #                 ymin = rq25_12,
-#   #                 ymax = rq75_12),
-#               # fill = "light grey",
-#               # alpha = 0.5) +
-#   scale_x_date(limits = c(ymd("1980-10-01"), ymd("2020-01-01")),
-#                breaks = seq(ymd("1980-01-01"), ymd("2020-01-01"), 
-#                             "5 years"),
-#                labels = date_format("%Y")) +
-#   # scale_colour_viridis(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12),
-#   #                      labels = c(10,11,12,1,2,3,4,5,6,7,8,9)) +
-#   # guides(color = guide_colorbar(title = "Month",
-#   #                               title.position = "top",
-#   #                               direction = "horizontal",
-#   #                               frame.colour = "black",
-#   #                               barwidth = 6,
-#   #                               barheight = 0.5)) +
-#   # scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
-#   #               labels = trans_format("log10", math_format(10^.x))) +
-#   theme(axis.title.x = element_blank(),
-#         # legend.position = c(0.8, 0.85),
-#         # legend.background = element_rect(fill=alpha("white", 0.4))
-#   ) +
-#   labs(subtitle = "D") +
-#   xlab("") +
-#   ylab(expression("Mean daily discharge ("*m^3~s^{-1}*")"))
-# p_q
-
 # Plot of metabolism data
 p_met <- ggplot(data = filter(df_met_l, key %in% c("GPP", "ER")),
                aes(x = date,
                    y = value)) + 
   geom_point(aes(color = key), alpha = 0.3, size = 0.15) +
-  geom_line(data = gpp_trend,
-            aes(x = date,
-                y = trend,
-                linetype = "trend")) +
+  # geom_line(data = gpp_trend,
+  #           aes(x = date,
+  #               y = trend,
+  #               linetype = "trend")) +
   scale_color_manual(name = "",
                      # labels = parse_format(),
                      values = c("light blue", "dark blue")) +
-  scale_x_date(limits = c(ymd("1993-01-01"), ymd("2020-01-01")),
-               breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
+  scale_x_date(limits = c(ymd("1980-01-01"), ymd("2020-01-01")),
+               breaks = seq(ymd("1980-01-01"), ymd("2020-01-01"),
                             "5 years"),
                labels = date_format("%Y")) +
   geom_hline(yintercept = 0) +
@@ -860,8 +864,8 @@ nep <- df_met %>%
   geom_point() +
   geom_errorbar(aes(ymin = lower.ci.NEP, ymax = upper.ci.NEP), width =0.2)  +
   geom_hline(yintercept = 0) +
-  scale_x_continuous(breaks = seq(1995, 2020, 5),
-                     limits = c(1993, 2020)) +
+  scale_x_continuous(breaks = seq(1980, 2020, 5),
+                     limits = c(1980, 2020)) +
   scale_y_continuous(sec.axis = sec_axis(~ . * -60000*200*44*365*12/32/44/1e9, 
                                          name = "Annual C efflux to atmosphere (Gg C)")) +
   scale_color_viridis_c(name = "year") +
@@ -873,28 +877,11 @@ nep <- df_met %>%
   xlab("")+
   ylab(expression(NEP~(g~O[2]~m^{-2}~d^{-1})))
 
-# * plot_layout(heights = c(4, 1)
 # Plot all plots
-((p_chla / p_mac / p_c / p_do) | (p_met / nep / fp_cent)) %>%
-  ggsave(filename = "Figures/Middle_Loire/Figure2_new.tiff",
+(p_chla / p_mac / p_c / p_met / nep) %>%
+  ggsave(filename = "Figures/Middle_Loire/Figure1.tiff",
          device = "tiff",
          dpi = 300,
-         height = 140,
+         height = 200,
          width = 183,
          units = "mm")
-
-
-df_met_clean %>%
-  # filter(year(date) %in% c(1997, 2011)) %>%
-  mutate(wk = week(date),
-         yr = year(date)) %>%
-  group_by(yr, wk) %>%
-  summarize_all(mean, na.rm = TRUE) %>%
-  mutate(dg = NEP -lag(NEP)) %>%
-  ggplot(aes(x = NEP, y = dg, color = wk,
-             group = 1)) +
-  geom_path() +
-  scale_color_viridis_c() +
-  facet_wrap(~yr) +
-  geom_hline(yintercept = 0) +
-  geom_vline(xintercept = 0)
