@@ -23,7 +23,7 @@ df_met_n <- df_met %>%
          NEP = GPP + ER,
          year = year(date),
          month = month(date)) %>%
-  filter(between(month, 4, 8)) %>%
+  filter(between(month, 4, 9)) %>%
   group_by(year) %>%
   nest()
 # library(furrr)
@@ -37,11 +37,11 @@ ggplot(data = na.omit(df_gc),
         aes(x = year,
             y = `Pr(>F)`)) +
     geom_point() +
-  geom_point(data = filter(df_mid_clean, solute == "CHLA") %>%
-               group_by(year) %>%
-               summarize(chla = quantile(value, 0.8, na.rm = TRUE) / 100),
-             aes(x = year, y = chla),
-             color = "darkgreen") +
+  # geom_point(data = filter(df_mid_clean, solute == "CHLA") %>%
+  #              group_by(year) %>%
+  #              summarize(chla = quantile(value, 0.8, na.rm = TRUE) / 100),
+  #            aes(x = year, y = chla),
+  #            color = "darkgreen") +
     geom_line() +
     theme_bw(base_size = 7) +
     scale_x_continuous(breaks = seq(1994, 2018, 2),
@@ -132,3 +132,23 @@ gc_dat <-
   as.matrix(.)
 
 summary(GrangerTest(df_gc_new))
+
+
+
+test2 <- df_met_n %>%
+  mutate(dat = future_map(data, ts_fun2),
+         ar1 = future_map(dat, ~acf(.$NEP, lag.max = 1))) %>%
+  unnest(ar1)
+
+
+ts_fun2 <- function(data){
+  data = data %>%
+    arrange(date) %>%
+    # mutate(ind = row_number()) %>%
+    na.trim() %>%
+    as.data.frame(.)
+  dat_ts = xts(x = data[, "NEP"],
+               order.by = data[, "date"])
+  dat_ts = na.trim(na_interpolation(dat_ts, option = "stine"))
+  # dat_ts = na.trim(diff(diff(dat_ts), lag = 180))
+}

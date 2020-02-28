@@ -46,7 +46,8 @@ df_use <- df_wq %>%
   filter(between(month, 4, 9)) %>%
   dplyr::select(date, GPP, ER, K600.daily, discharge.daily, max_light, med_light,
          temp, DOC, NO3, PO4, CHLA, SPM) %>%
-  mutate(GPP = ifelse(GPP < 0, NA, GPP)) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         period = if_else(year(date) < 2005, 0, 1)) %>%
   distinct(date, .keep_all = TRUE)
 
 df_use
@@ -63,7 +64,7 @@ scaled_df <- scale(df_use_subs) %>%
   as.data.frame()
 
 # Interactions
-fit_int <- lm(GPP ~ discharge.daily * temp * SPM, data = scaled_df)
+fit_int <- lm(GPP ~ discharge.daily * period, data = scaled_df)
 summary(fit_int)
 interact_plot(fit_int, pred = med_light, modx = SPM, linearity.check = TRUE,
               partial.residuals = TRUE, plot.points = TRUE)

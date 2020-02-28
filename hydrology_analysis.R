@@ -30,7 +30,7 @@ df_q_stat <- df_q %>%
   nest() %>%
   mutate(ls = map(data, low.spells, threshold = 200)) %>%
   unnest(ls)
-
+mean(df_q_stat$avg.low.spell.duration)
 df_lowflows <- df_q_stat %>%
   select(year = `year(Date)`, lf_dur = max.low.duration)
 saveRDS(df_lowflows, "Data/Discharge/low_flow_duration")
@@ -39,3 +39,19 @@ df_q_stat2 <- df_q %>%
   mutate(threshold = ifelse(Q < 200, 1, 0)) %>%
   group_by(year(Date)) %>%
   summarize(run = rle(df_q_stat$threshold))
+
+
+
+df_met_l %>%
+  mutate(year = year(date)) %>%
+  group_by(year, key) %>%
+  summarize(mean = mean(value, na.rm = TRUE),
+            median = median(value, na.rm = TRUE)) %>%
+  left_join(df_q_stat %>%
+              select(year = "year(Date)", ls = avg.low.spell.duration)) %>%
+  mutate(rel = mean / ls,
+         relmed = median /ls,
+         pd = if_else(year<2013, 0, 1)) %>%
+  group_by(pd, key) %>% 
+  summarize(mean = mean(rel, na.rm = TRUE), 
+            median = median(relmed, na.rm = TRUE))

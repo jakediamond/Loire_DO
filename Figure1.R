@@ -188,7 +188,6 @@ lm_dat <- filter(df_mid_wide, between(TP, 0, 0.1),
                  year > 2008, 
                  site_no == "04048000", between(month, 4, 9))
 p_lm <- lm(lm_dat$PO4~lm_dat$TP)
-# p_lm
 
 # Same thing for BOD5 and CHLA
 # ggplot(filter(df_mid_wide, 
@@ -204,7 +203,6 @@ lm_dat2 <- filter(df_mid_wide,
                   !between(year, 2007, 2012),
                   site_no == "04048000", between(month, 4, 9))
 p_lm2 <- lm(lm_dat2$BOD5~lm_dat2$CHLA)
-# p_lm2
 
 # Estimate BOD5, PO4 for years 2008-2011
 df_mid_long <- df_mid_wide %>%
@@ -231,26 +229,6 @@ df_mid_long <- df_mid_wide %>%
 df_mid_clean <- df_mid_long %>%
   filter_at(vars(value), all_vars(!is.na(.)))
 
-# # Quick look at data
-# ggplot(filter(df_mid_clean, solute == "PO4")) +
-#   geom_line(aes(x = date, y = value, color = site_no)) +
-#   facet_wrap(~solute, scales = "free_y")
-# 
-# # Look at variability across sites before averaging
-# df_mid_clean %>%
-#   dplyr::filter(solute %in% c("BOD5", "CHLA", 
-#                               "PO4", "NO3", "NP", "SPM",
-#                               "TP", "PheoP", "Ppar"),
-#                 between(month, 4, 9)) %>%
-#   group_by(solute, year, month) %>%
-#   summarize(date = mean(date),
-#             month_mean = mean(value, na.rm = TRUE),
-#             month_sd = sd(value, na.rm = TRUE),
-#             month_cv = month_sd / month_mean) %>%
-#   ggplot() +
-#   geom_line(aes(x = date, y = month_cv)) +
-#   facet_wrap(~solute, scales = "free_y")
-
 # Data for plots with annual moving averages (get rid of one weird data point for spm)
 df_solutes <- df_mid_clean %>%
   dplyr::filter(solute %in% c("BOD5", "CHLA", 
@@ -265,7 +243,8 @@ df_solutes <- df_mid_clean %>%
             month_mean = mean(value, na.rm = TRUE)) %>%
   ungroup() %>%
   filter(year >= 1980) %>%
-  mutate(summer = if_else(between(month, 4, 9), "summer", "winter"))
+  mutate(summer = if_else(between(month, 4, 9), "summer", "winter"),
+         month_mean = if_else(solute == "CHLA", month_mean / 1000, month_mean))
 
 # Calculate monthly running 90-day means of DO min and max
 df_do_rm <- df_do %>%
@@ -351,39 +330,25 @@ ts_conv <- function(data, log = TRUE, type = "solute"){
     dat_ts = xts(x = data[, -1],
                  order.by = data[, 1])
   } else{ 
-    dat_ts = xts(x = data[, 2],
-                 order.by = data[, 1])
+    dat_ts = data %>%
+      filter(
+        # between(month(date), 4, 10),
+             !(year(date) %in% c(1993, 2007))) %>%
+      mutate(year = year(date), week = week(date)) %>%
+      group_by(year, week) %>%
+      summarize(median = median(value, na.rm = TRUE))
   }
-  dat_ts = as.tibble(na_interpolation(dat_ts, option = "stine")) %>%
+  dat_ts = as_tibble(na_interpolation(dat_ts, option = "stine")) %>%
     mutate(ind = row_number())
   # dat_ts = as.ts(dat_ts)
+  # tibble(V1 = na_interpolation(dat_ts$median, option = "stine")) %>%
+  # mutate(ind = row_number())
 }
-
-# Turn into time series and analyze
-# chapts <- ts_dat %>%
-#   mutate(ts = future_map(data, ts_conv),
-#          cps = future_map(ts, cpt.meanvar),
-#          cpt = future_map(cps, pluck, cpts),
-#          ests = future_map(cps, pluck, param.est),
-#          dates = future_map2(data, cpt, slice)) %>%
-#   select(solute, dates, ests) %>%
-#   hoist(dates,
-#         brkdate = "date") %>%
-#   ungroup() %>%
-#   unnest_wider(ests) %>%
-#   hoist(variance, 
-#         variance1 = 1L,
-#         variance2 = 2L) %>%
-#   ungroup() %>%
-#   hoist(mean,
-#         mean1 = 1L,
-#         mean2 = 2L) %>%
-#   select(-dates)
 
 # Turn into time series and analyze for breakpoints
 # First set the model structure for breakpoints, which includes
 # a break in autocorrelation, intercept, variability, and slope
-model = list(
+model <- list(
   V1 ~ 1 +  ar(1) + sigma(1),  # int_1, ar_1
   ~ 1 +  ar(1) + sigma(1) # time_2, ar1_2
 )
@@ -402,7 +367,20 @@ bps <- ts_dat %>%
          fits = map2(ts, bp, ~mcp(model = model, data = .x, 
                               prior = list(cp_1 = .y), par_x = "ind")),
          mcp_res = map(fits, summary))
-
+x <- as.data.frame(df_mac %>%
+             group_by(year) %>%
+             summarize(x = sum(surface_area))# %>%
+             # ungroup() %>%
+             # select(x) %>%
+             #   as.matrix(.)
+             )
+# cpt.mean(x)
+# df_cor_sumbp <- mutate(df_cor_sum,
+#                        d = if_else(is.infinite(log(density)), 0, log(density)))
+# mcp(model = list(d ~ 1 + ar(1),  # int_1, ar_1
+#                    ~ 1 + ar(1)),
+#     data = df_cor_sumbp,
+#     par_x = "year")
 # Get the output
 bp_out <- bps %>%
   select(solute, data, mcp_res) %>%
@@ -418,92 +396,117 @@ bp_out <- bps %>%
   select(-data, -dates, -value, -name) %>%
   pivot_wider(names_from = type, values_from = brkdate)
 
-# Get data ready for plot, only want to show the summer estimates
+
+bp_out2 <- bps %>%
+  select(solute, data, mcp_res) %>%
+  unnest(mcp_res) %>%
+  select(solute, name, mean, upper, lower) %>%
+  pivot_wider(names_from = c(name), values_from = c(mean, upper, lower))
+
+# Estimate summertime values
 cpts_p <- bp_out %>%
-  # mutate(brkyr = year(round_date(brkdate, "year"))) %>%
+  mutate(brkyr = year(round_date(mean, "year"))) %>%
   left_join(df_solutes %>%
               filter(between(month, 4, 9))) %>%
-  mutate(period = if_else(date < brkdate, 1, 2)) %>%
-  group_by(solute, period, brkdate, type) %>%
-  summarize(mean = mean(month_mean, na.rm = TRUE),
-            sd = sd(month_mean, na.rm = TRUE)) %>%
+  mutate(period = if_else(date < mean, 1, 2)) %>%
+  group_by(solute, period) %>%
+  mutate(mlog = log(month_mean)) %>%
+  summarize(mean = mean(mlog, na.rm = TRUE),
+            sd = sd(mlog, na.rm = TRUE),
+            ml = exp(mean + 0.5*sd^2),
+            sdl = ml*sqrt(exp(sd^2)-1)) %>%
   pivot_wider(names_from = period,
-              values_from = c(mean, sd)) %>%
-  ungroup() %>%
-  mutate(yvals = c(14, 185, 4.2, 0.23, 135))
-
-# Changepoints for DO max and min
-chapts_do <- df_do_rm %>%
-  select(name, date, value) %>%
-  group_by(name) %>%
-  nest() %>%
-  mutate(ts = future_map(data, ts_conv, log = FALSE),
-         cps = future_map(ts, cpt.meanvar),
-         cpt = future_map(cps, pluck, cpts),
-         ests = future_map(cps, pluck, param.est),
-         dates = future_map2(data, cpt, slice)) %>%
-  select(name, dates, ests) %>%
-  hoist(dates,
-        brkdate = "date") %>%
-  ungroup() %>%
-  unnest_wider(ests) %>%
-  hoist(variance, 
-        variance1 = 1L,
-        variance2 = 2L) %>%
-  ungroup() %>%
-  hoist(mean,
-        mean1 = 1L,
-        mean2 = 2L) %>%
-  select(-dates) %>%
-  transmute(name = name,
-            brkyr = year(round_date(brkdate, "year"))) %>%
-  left_join(df_do_rm) %>%
-  mutate(period = if_else(year(date) < brkyr, 1, 2)) %>%
-  filter(between(month(date), 4, 9)) %>%
-  group_by(name, period, brkyr) %>%
-  summarize(mean = mean(value, na.rm = TRUE),
-            sd = sd(value, na.rm = TRUE)) %>%
-  pivot_wider(names_from = period,
-              values_from = c(mean, sd)) %>%
-  ungroup() %>%
-  mutate(brkdate = ymd(paste0(brkyr, "-06-01")),
-         yvals = 200) %>%
-  filter(name != "rm_min_wk")
+              values_from = c(mean, sd, ml, sdl)) #%>%
+  # ungroup() %>%
+  # mutate(yvals = c(14, 185, 4.2, 0.23, 135))
+# 
+# # Changepoints for DO max and min
+# chapts_do <- df_do_rm %>%
+#   select(name, date, value) %>%
+#   group_by(name) %>%
+#   nest() %>%
+#   mutate(ts = future_map(data, ts_conv, log = FALSE),
+#          cps = future_map(ts, cpt.meanvar),
+#          cpt = future_map(cps, pluck, cpts),
+#          ests = future_map(cps, pluck, param.est),
+#          dates = future_map2(data, cpt, slice)) %>%
+#   select(name, dates, ests) %>%
+#   hoist(dates,
+#         brkdate = "date") %>%
+#   ungroup() %>%
+#   unnest_wider(ests) %>%
+#   hoist(variance, 
+#         variance1 = 1L,
+#         variance2 = 2L) %>%
+#   ungroup() %>%
+#   hoist(mean,
+#         mean1 = 1L,
+#         mean2 = 2L) %>%
+#   select(-dates) %>%
+#   transmute(name = name,
+#             brkyr = year(round_date(brkdate, "year"))) %>%
+#   left_join(df_do_rm) %>%
+#   mutate(period = if_else(year(date) < brkyr, 1, 2)) %>%
+#   filter(between(month(date), 4, 9)) %>%
+#   group_by(name, period, brkyr) %>%
+#   summarize(mean = mean(value, na.rm = TRUE),
+#             sd = sd(value, na.rm = TRUE)) %>%
+#   pivot_wider(names_from = period,
+#               values_from = c(mean, sd)) %>%
+#   ungroup() %>%
+#   mutate(brkdate = ymd(paste0(brkyr, "-06-01")),
+#          yvals = 200) %>%
+#   filter(name != "rm_min_wk")
 
 # Changepoints for metabolism
+# new model form
+model_met <- list(
+  V1 ~ 1 + ar(1) + sigma(1),  # int_1, ar_1
+  ~ 1 +  ar(1) + sigma(1) # time_2, ar1_2
+)
+
+# Quick prior of breakpoints based on previous analyses
+bp_priors_met <- tibble(key = c("GPP", "ER", "K600.daily", "discharge.daily", "NEP"),
+                    bp = c("dunif(800,1000)",
+                           "dunif(800,1000)",
+                           "dunif(800,1000)",
+                           "dunif(800,1000)",
+                           "dunif(800,1000)"))
+# Do the bayesian changepoint analysis on weekly data (faster than daily)
 chapts_met <- ts_met %>%
+  left_join(bp_priors_met) %>%
+  filter(key %in% c("GPP", "ER")) %>%
   mutate(ts = future_map(data, ts_conv, log = FALSE, type = "met"),
-         cps = future_map(ts, cpt.meanvar),
-         cpt = future_map(cps, pluck, cpts),
-         ests = future_map(cps, pluck, param.est),
-         dates = future_map2(data, cpt, slice)) %>%
-  select(key, dates, ests) %>%
+         fits = map2(ts, bp, ~mcp(model = model_met, prior = list(cp_1 = .y),
+                             data = .x, par_x = "ind")),
+         mcp_res = map(fits, summary))
+plot(pluck(chapts_met2, 4, 1))
+plot_pars(pluck(chapts_met2, 5, 1))
+
+# function to get date from week and year
+weekfun <- function(data){
+  data %>%
+    filter(!(year(date) %in% c(1993, 2007))) %>%
+    mutate(year = year(date), week = week(date)) %>%
+    distinct(year, week) %>%
+    mutate(date = ymd(paste0(year,"-01-01")) + weeks(week - 1))
+}
+
+# Get the output
+bp_out_met <- chapts_met %>%
+  select(key, data, mcp_res) %>%
+  unnest(mcp_res) %>%
+  select(key, data, name, mean, upper, lower) %>%
+  filter(name == "cp_1") %>%
+  pivot_longer(cols = c(-key, -name, -data),
+               names_to = "type", values_to = "value") %>%
+  mutate(x = map(data, weekfun)) %>%
+  mutate(dates = future_map2(x, value, slice)) %>%
   hoist(dates,
         brkdate = "date") %>%
   ungroup() %>%
-  unnest_wider(ests) %>%
-  hoist(variance, 
-        variance1 = 1L,
-        variance2 = 2L) %>%
-  ungroup() %>%
-  hoist(mean,
-        mean1 = 1L,
-        mean2 = 2L) #%>%
-  # select(-dates) %>%
-  # transmute(name = name,
-  #           brkyr = year(round_date(brkdate, "year"))) %>%
-  # left_join(df_do_rm) %>%
-  # mutate(period = if_else(year(date) < brkyr, 1, 2)) %>%
-  # filter(between(month(date), 4, 9)) %>%
-  # group_by(name, period, brkyr) %>%
-  # summarize(mean = mean(value, na.rm = TRUE),
-  #           sd = sd(value, na.rm = TRUE)) %>%
-  # pivot_wider(names_from = period,
-  #             values_from = c(mean, sd)) %>%
-  # ungroup() %>%
-  # mutate(brkdate = ymd(paste0(brkyr, "-06-01")),
-  #        yvals = 200) %>%
-  # filter(name != "rm_min_wk")
+  select(-data, -dates, -value, -name) %>%
+  pivot_wider(names_from = type, values_from = brkdate)
 
 # Figure 2 plot -----------------------------------------------------------
 # Chlorophyll a plot
@@ -554,81 +557,6 @@ solute_labels <- df_solutes %>%
   mutate(lab_date = ymd("1985-01-01"), lab_value = max(month_mean, na.rm = TRUE)) %>%
   distinct(solute, lab_date, lab_value)
 
-# Chlorophyll plot
-p_chla <- ggplot(data = dplyr::filter(df_solutes,
-                                      solute %in% c("Chlorophyll~a"))) + 
-  geom_line(aes(x = date,
-                y = month_mean,
-                color = summer,
-                group = 1)) +
-  geom_vline(data = filter(bp_out, solute == "CHLA") %>%
-               dplyr::select(mean), 
-             aes(xintercept = mean),
-             linetype = "longdash",
-             color = "dark green",
-             size = 0.5,
-             alpha = 0.8) +
-  geom_rect(data = filter(bp_out, solute == "CHLA"),
-            aes(xmin = lower, 
-                xmax = upper, 
-                ymin = -Inf, 
-                ymax = Inf),
-            # linetype = NA,
-            fill = "dark green",
-            alpha = 0.4) +
-  # geom_text(data = filter(cpts_p, solute %in% c("Chlorophyll~a")), 
-  #           aes(x = brkdate,
-  #               y = yvals,
-  #               label = brkyr),
-  #           size = 2.2,
-  #           color = "dark green") +
-  # geom_text(data = filter(cpts_p, solute %in% c("Chlorophyll~a")), 
-  #           aes(x = ymd("1987-01-01"),
-  #               y = yvals,
-  #               label = paste0("list(","`[`*",
-  #                              "bar(summer[1])*",
-  #                              "`]`==",
-  #                              # "*",
-  #                              round(mean_1, 2), 
-  #                              "%+-%",
-  #                             round(sd_1, 2),
-  #                             ")")),
-  #           parse = TRUE,
-  #           size = 2.2,
-  #           color = "dark green") +
-  # geom_text(data = filter(cpts_p, solute %in% c("Chlorophyll~a")),  
-  #           aes(x = ymd("2014-01-01"),
-  #               y = yvals,
-  #               label = paste0("list(","`[`*",
-  #                              "bar(summer[2])*",
-  #                              "`]`==",
-  #                              # "*",
-  #                              round(mean_2, 2), 
-  #                              "%+-%",
-  #                              round(sd_2, 2),
-  #                              ")")),
-  #           parse = TRUE,
-  #           size = 2.2,
-  #           color = "dark green") +
-  scale_color_manual(name = "",
-                     breaks = c("summer", "winter"),
-                     values = c("dark green", "light green")) +
-  scale_x_date(limits = c(ymd("1980-01-01"), ymd("2020-01-01")),
-               breaks = seq(ymd("1980-01-01"), ymd("2020-01-01"), 
-                            "5 years"),
-               labels = date_format("%Y")) +
-  # guides(color = FALSE) +
-  theme(axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        legend.position = c(0.8, 0.6),
-        legend.key.height = unit(0.2, "cm"),
-        legend.background = element_rect(fill = alpha('white', 0.4))
-        ) +
-  labs(subtitle = "E") +
-  xlab("") +
-  ylab(expression("Chlorophyll a ("*mu*g~L^{-1}*")"))
-p_chla
-
 # Macrophyte plot
 p_mac <- ggplot(data = filter(df_mac, species != "Elodea nuttallii"),
                 aes(x = year,
@@ -639,7 +567,7 @@ p_mac <- ggplot(data = filter(df_mac, species != "Elodea nuttallii"),
   stat_summary(aes(linetype = type2), fun.y = "sum", geom = "line") + 
   scale_x_continuous(limits = c(1980, 2020),
                      breaks = seq(1980, 2020, 5)) +
-  geom_vline(aes(xintercept = 2005),
+  geom_vline(aes(xintercept = 2008),
              linetype = "longdash",
              color = "dark green",
              size = 0.5,
@@ -651,7 +579,7 @@ p_mac <- ggplot(data = filter(df_mac, species != "Elodea nuttallii"),
         legend.position = c(0.22, 0.58),
         legend.key.height = unit(0.2, "cm"),
         legend.margin = margin(t = 0, b = -0.1, unit='cm')) +
-  labs(subtitle = "F") +
+  labs(subtitle = "B") +
   xlab("") +
   ylab(expression("Macrophyte surface area ( "*m^{2}*")"))
 p_mac
@@ -664,21 +592,35 @@ p_c <- ggplot(data = df_cor_sum,
   geom_point() +
   geom_errorbar(aes(ymin = density - se,
                     ymax = density + se)) +
-  geom_vline(aes(xintercept = ymd("2005-01-01")),
+  geom_vline(aes(xintercept = ymd("2001-06-01")),
              linetype = "longdash",
-             color = "dark green",
+             color = "black",
              size = 0.5,
              alpha = 0.8) +
+  annotate(geom = "rect",
+           xmin = ymd("2001-01-01"), 
+                xmax = ymd("2002-01-01"), 
+                ymin = 10^-2, 
+                ymax = 10^4,
+            fill = "black",
+            alpha = 0.4) +
   scale_x_date(limits = c(ymd("1980-01-01"), ymd("2020-01-01")),
                breaks = seq(ymd("1980-01-01"), ymd("2020-01-01"),
                             "5 years"),
                labels = date_format("%Y")) +
   scale_y_log10(sec.axis = sec_axis(~ . *200*10000*1.4e-7/100, 
-                                         name = "Turnover ratio (-)")) +
+                                         name = "Turnover ratio (-)",
+                                    labels = trans_format("log10", math_format(10^.x)),
+                                    breaks = c(10^-4, 10^-3, 10^-2, 10^-1,
+                                               10^0, 10^1)),
+                labels = trans_format("log10", math_format(10^.x)),
+                breaks = c(10^-1, 10^0, 10^1, 10^2,
+                           10^3)) +
+  # annotation_logticks(sides="rl") +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_blank(),
         legend.position = c(0.2, 0.6)) +
-  labs(subtitle = "G") +
+  labs(subtitle = "C") +
   xlab("") +
   ylab(expression(italic(Corbicula )~sp.~"(ind "*m^{-2}*")"))
 p_c
@@ -748,9 +690,9 @@ p_do
 
 # Add breakpoints to solutes
 # Plot of monthly solute time series
-p_solutes <- ggplot(data = filter(df_solutes,
+p_solutes1 <- ggplot(data = filter(df_solutes,
                                   # between(month, 4, 10),
-                                  solute %in% c("NO[3]^{`-`}-N",
+                                  solute %in% c(#"NO[3]^{`-`}-N",
                                                 "Chlorophyll~a",
                                                 # "TP",
                                                 "PO[4]^{`3-`}-P",
@@ -760,14 +702,17 @@ p_solutes <- ggplot(data = filter(df_solutes,
                         fill = solute)) + 
   geom_line(aes(x = date,
                 y = month_mean,
-                group = 1)) +
+                group = 1,
+                alpha = summer)) +
   geom_vline(data = bp_out %>%
-               dplyr::select(solute, mean), 
+               dplyr::select(solute, mean) %>%
+               filter(solute != "NO[3]^{`-`}-N"), 
              aes(xintercept = mean),
              linetype = "longdash",
              size = 0.5,
              alpha = 0.8) +
-  geom_rect(data = bp_out,
+  geom_rect(data = bp_out %>%
+              filter(solute != "NO[3]^{`-`}-N"),
             aes(xmin = lower, 
                 xmax = upper, 
                 ymin = -Inf, 
@@ -830,9 +775,13 @@ p_solutes <- ggplot(data = filter(df_solutes,
              ncol = 1) +
   geom_text(aes(label = solute,
                 x = lab_date,
-                y = lab_value), data = solute_labels, vjust = 1, 
+                y = lab_value), data = solute_labels %>%
+              filter(solute != "NO[3]^{`-`}-N"), vjust = 1, 
             size = 2,
             parse = TRUE) +
+  scale_alpha_manual(name = "",
+                     breaks = c("summer", "winter"),
+                     values = c(1, 0.2)) +
   scale_color_aaas() +
   scale_fill_aaas() +
   scale_x_date(limits = c(ymd("1980-01-01"), ymd("2020-01-01")),
@@ -849,17 +798,147 @@ p_solutes <- ggplot(data = filter(df_solutes,
         panel.border = element_rect(color = "black"),
         strip.text.x = element_blank()
         ) +
-  labs(subtitle = "A") +
+  # labs(subtitle = "A") +
   xlab("") +
   ylab(expression("Concentration (mg "~L^{-1}*")"))
-p_solutes
+p_solutes1
 
+p_solutes2 <- ggplot(data = filter(df_solutes,
+                                   # between(month, 4, 10),
+                                   solute == "NO[3]^{`-`}-N"),
+                     aes(color = solute,
+                         fill = solute)) + 
+  geom_line(aes(x = date,
+                y = month_mean,
+                group = 1,
+                alpha = summer)) +
+  geom_vline(data = bp_out %>%
+               dplyr::select(solute, mean) %>%
+               filter(solute == "NO[3]^{`-`}-N"), 
+             aes(xintercept = mean),
+             linetype = "longdash",
+             size = 0.5,
+             alpha = 0.8) +
+  geom_rect(data = bp_out %>%
+              filter(solute == "NO[3]^{`-`}-N"),
+            aes(xmin = lower, 
+                xmax = upper, 
+                ymin = -Inf, 
+                ymax = Inf),
+            alpha = 0.4) +
+  # geom_vline(data = filter(cpts_p, solute %in% c("NO[3]^{`-`}-N",
+  #                                                # "TP",
+  #                                                "PO[4]^{`3-`}-P",
+  #                                                "TSS",
+  #                                                "BOD[5]")), 
+  #            aes(xintercept = round_date(brkdate, "year")),
+  #            linetype = "longdash",
+  #            size = 0.5,
+  #            alpha = 0.8) +
+  # geom_text(data = filter(cpts_p, solute %in% c("NO[3]^{`-`}-N",
+  #                                                # "TP",
+#                                                "PO[4]^{`3-`}-P",
+#                                                "TSS",
+#                                                "BOD[5]")), 
+#           aes(x = brkdate,
+#               y = yvals,
+#               label = brkyr),
+#           size = 2.2) +
+# geom_text(data = filter(cpts_p, solute %in% c("NO[3]^{`-`}-N",
+#                                                # "TP",
+#                                                "PO[4]^{`3-`}-P",
+#                                                "TSS",
+#                                                "BOD[5]")), 
+#           aes(x = ymd("1987-01-01"),
+#               y = yvals,
+#               label = paste0("list(","`[`*",
+#                              "bar(summer[1])*",
+#                              "`]`==",
+#                              # "*",
+#                              round(mean_1, 2), 
+#                              "%+-%",
+#                              round(sd_1, 2),
+#                              ")")),
+#           parse = TRUE,
+#           size = 2.2) +
+# geom_text(data = filter(cpts_p, solute %in% c("NO[3]^{`-`}-N",
+#                                                # "TP",
+#                                                "PO[4]^{`3-`}-P",
+#                                                "TSS",
+#                                                "BOD[5]")),  
+#           aes(x = ymd("2014-01-01"),
+#               y = yvals,
+#               label = paste0("list(","`[`*",
+#                              "bar(summer[2])*",
+#                              "`]`==",
+#                              # "*",
+#                              round(mean_2, 2), 
+#                              "%+-%",
+#                              round(sd_2, 2),
+#                              ")")),
+#           parse = TRUE,
+#           size = 2.2) +
+facet_wrap(~solute, scales = "free_y",
+           labeller = label_parsed,
+           ncol = 1) +
+  geom_text(aes(label = solute,
+                x = lab_date,
+                y = lab_value), data = solute_labels %>%
+              filter(solute == "NO[3]^{`-`}-N"), vjust = 1, 
+            size = 2,
+            parse = TRUE) +
+  scale_alpha_manual(name = "",
+                     breaks = c("summer", "winter"),
+                     values = c(1, 0.2)) +
+  scale_color_aaas() +
+  scale_fill_aaas() +
+  scale_x_date(limits = c(ymd("1980-01-01"), ymd("2020-01-01")),
+               breaks = seq(ymd("1980-01-01"), ymd("2020-01-01"), 
+                            "5 years"),
+               labels = date_format("%Y")) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        panel.border = element_rect(color = "black"),
+        strip.text.x = element_blank()
+  ) +
+  # labs(subtitle = "A") +
+  xlab("") +
+  ylab(expression("Concentration (mg "~L^{-1}*")"))
+p_solutes2
+
+# Cumulative NEP
+cumnep <- df_met %>%
+  mutate(year = year(date)) %>%
+  ungroup() %>%
+  group_by(year) %>%
+  summarize(NEP = sum(NEP, na.rm = TRUE)* -60000*200*44*365*12/32/44/1e12) %>%
+  mutate(date = ymd(paste0(year, "-06-01")))
+plot(cumnep)
+
+ylim.prim <- c(-25, 30)   # in this example, precipitation
+ylim.sec <- c(-1.5, 0.5)    
+b <- diff(ylim.prim)/diff(ylim.sec)
+a <- b*(ylim.prim[1] - ylim.sec[1])
+scaleFactor <- 25 / max(cumnep$NEP, na.rm = T)
 # Plot of metabolism data
-p_met <- ggplot(data = filter(df_met_l, key %in% c("GPP", "ER")),
-               aes(x = date,
-                   y = value)) + 
-  geom_point(aes(color = key), alpha = 0.3, size = 0.15) +
-  # geom_line(data = gpp_trend,
+p_met <- ggplot() + 
+  geom_point(data = filter(df_met_l, key %in% c("GPP", "ER")),
+             aes(x = date,
+                 y = value,
+                 color = key), alpha = 0.3, size = 0.15) +
+  geom_line(data = cumnep, aes(x = date, y = ylim.prim[1]+(NEP-ylim.sec[1])/b), color = "red") +
+  # geom_line(data = cumnep, aes(x = date, y = NEP * scaleFactor), col="red") +
+  # scale_y_continuous(sec.axis=sec_axis(~./scaleFactor,
+  #                                      name="annual C efflux to atmosphere (Tg C)")) +
+  scale_y_continuous(sec.axis = sec_axis(~((.-ylim.prim[1]) *b  + ylim.sec[1]), 
+                                         name = "annual C efflux to atmosphere (Tg C)"), 
+                     limits = ylim.prim) +
+  # # geom_line(data = gpp_trend,
   #           aes(x = date,
   #               y = trend,
   #               linetype = "trend")) +
@@ -871,20 +950,28 @@ p_met <- ggplot(data = filter(df_met_l, key %in% c("GPP", "ER")),
                             "5 years"),
                labels = date_format("%Y")) +
   geom_hline(yintercept = 0) +
-  # geom_vline(data = chapts_do, 
-  #            aes(xintercept = brkdate),
-  #            linetype = "longdash",
-  #            color = "dark blue",
-  #            size = 0.5,
-  #            alpha = 0.8) +
+  geom_vline(data = filter(bp_out_met, key == "GPP") %>%
+               dplyr::select(mean), 
+             aes(xintercept = mean),
+             linetype = "longdash",
+             size = 0.5,
+             alpha = 0.8,
+             color = "dark blue") +
+  geom_rect(data = filter(bp_out_met, key == "GPP"),
+            aes(xmin = lower,
+                xmax = upper,
+                ymin = -Inf,
+                ymax = Inf),
+            alpha = 0.4,
+            fill = "dark blue") +
   theme(axis.title.x = element_blank(),
-        legend.position = c(0.15, 0.15),
+        # legend.position = c(0.15, 0.15),
         legend.direction = "horizontal",
         legend.key.height = unit(0.2, "cm"),
         legend.background = element_rect(fill = alpha('white', 0.4))) +
-  labs(subtitle = "E") +
+  # labs(subtitle = "D") +
   xlab("") +
-  ylab(expression("Metabolic flux"~(g~O[2]~m^{-2}~d^{-1})))
+  ylab(expression("metabolic flux"~(g~O[2]~m^{-2}~d^{-1})))
 p_met
 
 nep <- df_met %>%
@@ -918,15 +1005,15 @@ nep <- df_met %>%
         legend.direction = "horizontal",
         legend.position = c(0.5, 0.85),
         legend.background = element_rect(color = "transparent")) +
-  labs(subtitle = "F") +
+  # labs(subtitle = "F") +
   xlab("")+
   ylab(expression(NEP~(g~O[2]~m^{-2}~d^{-1})))
 
 # Plot all plots
-((p_solutes / p_mac / p_c / p_met) + 
-    plot_layout(heights = c(5, 1, 1, 1))) %>%
-  ggsave(filename = "Figures/Middle_Loire/Figure1_same_scale.tiff",
-         device = "tiff",
+((p_solutes2/ p_c / p_solutes1 / p_mac / p_met) + 
+    plot_layout(heights = c(1, 1, 4, 1, 1))) %>%
+  ggsave(filename = "Figures/Middle_Loire/Figure1_same_scale2_bps_all_rearrange.svg",
+         device = "svg",
          dpi = 300,
          height = 250,
          width = 183,
