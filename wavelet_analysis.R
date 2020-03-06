@@ -30,7 +30,7 @@ df_use <- df_met %>%
          ER = ifelse(ER > 0, NA, ER),
          NPP = GPP + ER) %>%
   left_join(df_q) %>%
-  filter(between(month, 4, 9)) %>%
+  filter(between(month, 6, 8)) %>%
   na.trim()
 
 ts_conv <- function(data){
@@ -60,9 +60,9 @@ reconstruct(myw, plot.waves = FALSE, lwd = c(1,2),
 my.data <- data.frame(x = gpp, y = er)
 my.wc <- analyze.coherency(my.data, my.pair = c(1,2),
                            # loess.span = 0,
-                           dt = 1/180, dj = 1/20,
-                           lowerPeriod = 2/180,
-                           upperPeriod = 180/180,
+                           dt = 1/365, dj = 1/20,
+                           lowerPeriod = 4/365,
+                           upperPeriod = 365/365,
                            make.pval = TRUE, n.sim = 10,
                            date.format = "%Y-%m-%d")
 wc.image(my.wc, n.levels = 250,

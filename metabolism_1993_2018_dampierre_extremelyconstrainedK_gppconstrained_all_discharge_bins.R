@@ -5,7 +5,7 @@
 # 
 
 # Set working directory
-# setwd("Z:/Loire_DO")
+setwd("Z:/Loire_DO")
 # setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 setwd("D:/jake.diamond/Loire_DO")
 
@@ -116,6 +116,12 @@ df <- depth %>%
   right_join(df %>%
                mutate(date = date(solar.time))) %>%
   select(-date, -discharge.daily)
+
+df_send <- df %>%
+  mutate(date = date(datetime)) %>%
+  select(datetime, date, DO = DO_use, depth, temp = temp.water, DO.sat, light) %>%
+  left_join(df_q, by = "date")
+write_excel_csv(df_send, "data_for_alain.csv")
 
 # Split data into five analysis periods to reduce memory needed for each run
 df2 <- df %>%

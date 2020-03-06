@@ -1,20 +1,8 @@
 # Granger causality ER GPP ------------------------------------------------
 # Granger causality ER GPP
-df_nopool <- df_met
 library(lmtest)
-x <- grangertest(df_nopool$GPP[486:637],df_nopool$ER[486:637], order = 2)
-grangertest(df_nopool$ER[486:637],df_nopool$GPP[486:637], order = 3)
-grangertest(diff(df_nopool$GPP[486:637]),diff(df_nopool$ER[486:637]), order = 2)
-grangertest(diff(df_nopool$ER[486:637]),diff(df_nopool$GPP[486:637]), order = 2)
-grangertest(diff(df_nopool$K600.daily[486:637]), diff(df_nopool$ER[486:637]), order = 1)
-
-grangertest(diff(df_nopool$GPP[9252:9404]),diff(df_nopool$ER[9252:9404]), order = 2)
-grangertest(diff(df_nopool$ER[9252:94047]),diff(df_nopool$GPP[9252:9404]), order = 2)
-grangertest(diff(df_nopool$K600.daily[9252:9404]), diff(df_nopool$GPP[9252:9404]), order = 2)
-plot(df_nopool$GPP[1:365])
-plot(diff(df_nopool$K600.daily[1:365]))
-
-
+library(furrr)
+library(tidyverse)
 df_met_n <- df_met %>%
   ungroup() %>%
   # dplyr::select(-time_frame) %>%
@@ -23,10 +11,10 @@ df_met_n <- df_met %>%
          NEP = GPP + ER,
          year = year(date),
          month = month(date)) %>%
-  filter(between(month, 4, 9)) %>%
+  filter(between(month, 5, 9)) %>%
   group_by(year) %>%
   nest()
-# library(furrr)
+
 # granger causality
 df_gc <- df_met_n %>%
   mutate(gc_er_gpp = future_map(data, ~grangertest(diff(.$ER) ~ diff(.$GPP), 

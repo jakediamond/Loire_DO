@@ -35,7 +35,9 @@ df <- readRDS("Data/Loire_DO/middle_loire_wq") %>%
   select(solute, date, value)
 
 # Load metabolism data
-df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins") %>%
+df_met <- 
+  df_gp %>%
+  # readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins") %>%
   ungroup() %>%
   mutate(GPP = ifelse(GPP < 0, NA, GPP),
          ER = ifelse(ER > 0, NA, ER),
@@ -80,13 +82,14 @@ df_ts <- df %>%
 # Analyze metabolism data
 df_ts_met <- df_met %>%
   # filter(between(month(date), 4, 9)) %>%
-  filter(year(date) != 1993) %>%
+  filter(year(date) != 1993,
+         between(month(date), 4, 10)) %>%
   select(-K600.daily, -NPP) %>%
   pivot_longer(cols = c(GPPq, ERq, NEPq), names_to = "flux") %>%
   group_by(flux) %>%
   nest() %>%
   mutate(ts_dat = future_map(data, ts_conv),
-         ew = future_map(ts_dat, generic_ews, winsize = 33, 
+         ew = future_map(ts_dat, generic_ews, winsize = 25, 
                          logtransform = FALSE))
          # , bds = future_map(ts_dat, ~bdstest_ews(bind_cols(date = index(.), 
          #                                                 value = .),
@@ -151,7 +154,7 @@ plotnames <- tibble(name = c("ar1", "acf1", "densratio", "kurt", "cv",
 left_join(met_plot_data, plotnames, by = "name") -> met_plot_data
 left_join(sol_plot_data, plotnames, by = "name") -> sol_plot_data
 
-(ggplot() + 
+ggplot() + 
   geom_line(data = filter(met_plot_data, !(name %in% c("returnrate", "acf1"))),
             aes(x = date, y = value,
                 color = flux)) +
@@ -160,27 +163,27 @@ left_join(sol_plot_data, plotnames, by = "name") -> sol_plot_data
                        values = c("light blue", "dark blue","dark green"),
                        labels = c("ER", "GPP", "NEP")) +
     scale_x_date(date_breaks = "3 years",
-                 limits = c(ymd("2000-01-01"), ymd("2019-01-01")),
+                 # limits = c(ymd("2000-01-01"), ymd("2019-01-01")),
                  date_labels = "%Y") + 
-    geom_rect(data = filter(bp_out_met, key == "GPP"),
-              aes(xmin = lower,
-                  xmax = upper,
-                  ymin = -Inf,
-                  ymax = Inf),
-              alpha = 0.4,
-              fill = "dark blue") +
-    geom_rect(data = filter(bp_out, solute == "Chlorophyll~a"),
-              aes(xmin = lower,
-                  xmax = upper,
-                  ymin = -Inf,
-                  ymax = Inf),
-              alpha = 0.4,
-              fill = "red") +
-    geom_line(data = filter(sol_plot_data, !(name %in% c("returnrate", "acf1")),
-                            solute == "CHLA"),
-              aes(x = date,
-                  y = value),
-              color = "red") +
+    # geom_rect(data = filter(bp_out_met, key == "GPP"),
+    #           aes(xmin = lower,
+    #               xmax = upper,
+    #               ymin = -Inf,
+    #               ymax = Inf),
+    #           alpha = 0.4,
+    #           fill = "dark blue") +
+    # geom_rect(data = filter(bp_out, solute == "Chlorophyll~a"),
+    #           aes(xmin = lower,
+    #               xmax = upper,
+    #               ymin = -Inf,
+    #               ymax = Inf),
+    #           alpha = 0.4,
+    #           fill = "red") +
+    # geom_line(data = filter(sol_plot_data, !(name %in% c("returnrate", "acf1")),
+    #                         solute == "CHLA"),
+    #           aes(x = date,
+    #               y = value),
+    #           color = "red") +
   theme(legend.position = c(0.4, 0.9),
         axis.title.x = element_blank(),
         axis.title.y = element_blank(),
@@ -188,7 +191,9 @@ left_join(sol_plot_data, plotnames, by = "name") -> sol_plot_data
         legend.background = element_rect(fill = "transparent"),
         strip.background = element_blank(),
         strip.placement = "outside") +
-  facet_wrap(~plotname, scales = "free_y", strip.position = "left")) %>%
+  facet_wrap(~plotname, scales = "free_y", strip.position = "left")
+
+
   ggsave(filename = "Figures/Middle_Loire/earlywarnings_with_bps_chla.svg",
          device = "svg",
          dpi = 300,
