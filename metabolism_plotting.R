@@ -236,15 +236,21 @@ df_l <- df %>%
          units = "in")
 
 # Plot cumulative years
-(df_l %>%
-    filter(flux %in% c("GPP", "ER", "NPP")) %>%
-    group_by(flux, year) %>%
-    mutate(cum = order_by(julian, cumsum(replace_na(value, 0)))) %>%
-    ggplot(aes(x = julian,
+(df_met_l %>%
+    mutate(month = month(date),
+           year = year(date),
+           date2 = ymd(paste("2012", month, day(date), sep = "-")),
+           period = if_else(year <2005, 1, 2)) %>%
+    filter(key %in% c("GPP", "ER", "NPP"),
+           between(month,4,10)) %>%
+    group_by(key, year) %>%
+    mutate(cum = order_by(date2, cumsum(replace_na(value, 0)))) %>%
+    ggplot(aes(x = date2,
                y = cum,
-               color = factor(year))) +
+               color = factor(year),
+               linetype = as.factor(period))) +
     geom_line() +
-    facet_wrap(~flux) + 
+    facet_wrap(~key) + 
     scale_color_viridis_d(name = "Year") +
     theme_bw() + 
     theme(legend.position = "right") +
@@ -393,12 +399,13 @@ dygraph(bv, main = "Loire à Dampierre Amont") %>%
 # dySeries("SC", axis=('y2'))
 
 # Clean and gather data for Lorenz curve
-df_cume <- df %>%
+df_cume <- df_met %>%
   select(date, GPP, ER, NPP) %>%
   mutate(ER = ifelse(ER >=0 | is.na(ER), 0, ER),
          GPP = ifelse(GPP < 0 | is.na(GPP), 0, GPP),
          NPP = GPP + ER,
          year = year(date)) %>%
+  filter(between(month(date), 4, 10)) %>%
   gather(flux, value, -date, -year) %>%
   group_by(year, flux) %>%
   nest()
@@ -418,10 +425,12 @@ cume_fun <- function(data){
 
 # Apply function to data
 df_l2 <- df_cume %>%
+  ungroup() %>%
   transmute(flux, year,
             beta = map(data, 
                        cume_fun)) %>%
-  unnest()
+  unnest() %>%
+  mutate(period = if_else(year < 2005, "phytoplankton", "macrophytes"))
 
 # Gini coeff. function
 gini_fun <- function(data) 
@@ -447,7 +456,8 @@ gini_data <- df_cume %>%
 p2 <- ggplot(data = df_l2) + 
   geom_line(aes(x = t_rel,
                 y = flux_rel,
-                colour = as.factor(year))) + 
+                colour = as.factor(year),
+                linetype = period)) + 
   theme_bw() + 
   facet_wrap(~flux) +
   geom_abline(intercept = 0, slope = 1) +

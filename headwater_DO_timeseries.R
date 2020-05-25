@@ -6,7 +6,8 @@
 
 # Set working directory
 # setwd("Z:/Loire_DO")
-setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+setwd("//ly-lhq-srv/jake.diamond/Loire_DO")
 
 # Load libraries
 library(tidyverse)
@@ -109,24 +110,25 @@ df <- tibble(filename = files) %>%
                                         skip = 2,
                                         col_names = FALSE))
   ) %>%
-  unnest()
+  unnest(cols = c(file_contents))
 
 # Load metadata
 meta <- read_excel("Data/Headwaters_DO/sensor_metadata.xlsx",
                    sheet = 2,
-                   col_types = c("text", "text", 
+                   col_types = c("numeric", "text", "text", 
                                  "text", "text",
                                  "numeric", "numeric",
                                  "text", "numeric",
-                                 "text", "numeric")) %>%
-  select(-3) %>%
-  rename(sensor = `Serial Number`)
+                                 "text", "numeric", "text", "text")) %>%
+  select(-4) %>%
+  rename(sensor = `DO Serial Number`)
 
 # Some data cleaning, make filename = sensor serial number, and correct datetime
 df <- df %>%
   separate(filename, c("sensor", "recoverydate"), "_") %>%
   select(-X1, -recoverydate) %>%
-  mutate(X2 = mdy_hms(X2)) %>%
+  mutate(X2 = mdy_hms(X2),
+         Year = year(X2)) %>%
   rename(datetime = X2,
          temp = X4,
          DO = X3) %>%
@@ -136,7 +138,7 @@ df <- df %>%
 pts <- read_excel("Data/Headwaters_DO/Field_data.xlsx") %>%
   left_join(meta) %>%
   rename(temp = `T (°C)`, DO = `DO (mg/L)`) %>%
-  filter(Datetime > ymd("2019-07-01"))
+  filter(Datetime > ymd("2020-01-01"))
 
 # plot DO data
 # define limits to axes

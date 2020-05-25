@@ -73,17 +73,21 @@ df <- df %>%
          day = Jour)
 
 # Just middle Loire sites
-df_mid_wq <- filter(df, site_no %in% c("04048000",
-                                       # "04048100",
-                                       # "04047600",
+df_mid_wq <- filter(df, site_no %in% c("04045900",
+                                       "04046800",
+                                       "04046000",
+                                       "04046400",
+                                       "04048000",
+                                       "04048100",
+                                       "04047600",
                                        "04049000",
-                                       # "04049850",
-                                       # "04050000",
-                                       "04050500")) %>%
-                                       # "04050550",
-                                       # "04051000")) %>%
+                                       "04049850",
+                                       "04050000",
+                                       "04050500", 
+                                       "04050550",
+                                       "04051000")) %>%
   distinct(site_no, date, .keep_all = TRUE)
-
+write_excel_csv2(df_mid_wq, "middle_loire_wq_florentina.csv")
 # Load long term DO data
 df_do <- readRDS("Data/all_DO_cleaned") %>%
   group_by(site) %>%

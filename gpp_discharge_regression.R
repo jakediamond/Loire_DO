@@ -14,12 +14,14 @@ library(furrr)
 library(patchwork)
 library(car)
 library(MASS)
+library(interactions)
 library(readxl)
 library(leaps)
 library(tidyverse)
 library(conflicted)
 conflict_prefer("select", "dplyr")
 conflict_prefer("filter", "dplyr")
+conflict_prefer("layout", "graphics")
 
 # # Set the plotting theme
 theme_set(theme_bw(base_size=7)+
@@ -27,34 +29,46 @@ theme_set(theme_bw(base_size=7)+
                   panel.grid.minor = element_blank()))
 
 # Load some data
-df_wq_reg <- readRDS("Data/Loire_DO/middle_loire_wq") %>%
+df_wq <- readRDS("Data/Loire_DO/middle_loire_wq") %>%
   pivot_wider(names_from = solute, values_from = value)
 df_q <- readRDS("Data/Discharge/dampierre_discharge_for_metab")
 df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins")
 df_light <- readRDS("Data/Loire_DO/light_dampierre_for_metab") %>%
   mutate(date = date(datetime)) %>%
+  filter(light > 0) %>%
   group_by(date) %>%
   summarize(max_light = max(light, na.rm = TRUE),
-            med_light = sum(light, na.rm = TRUE))
+            med_light = median(light, na.rm = TRUE),
+            q99_light = quantile(light, 0.99, na.rm = TRUE),
+            q95_light = quantile(light, 0.95, na.rm = TRUE),
+            q90_light = quantile(light, 0.90, na.rm = TRUE),
+            sum_light = sum(light, na.rm = TRUE))
 df_t <- readRDS("Data/Loire_DO/temp_median_dampierre")
-df_use <- df_wq_reg %>%
-  left_join(df_q) %>%
-  left_join(df_met) %>%
-  left_join(df_light) %>%
-  left_join(ungroup(df_t)) %>%
+df_use <- df_met %>%
+  left_join(readRDS("metabolism_data_summary")) %>%
+  #df_q %>%
+  # left_join(df_q) %>%
+  # left_join(df_met) %>%
+  # left_join(df_light) %>%
+  # left_join(ungroup(df_t)) %>%
   ungroup() %>%
-  filter(between(month, 4, 9)) %>%
-  dplyr::select(date, GPP, discharge.daily, med_light,
-         temp, SPM, PO4, CHLA, NO3, DOC) %>%
+  # filter(between(month(date), 4, 9)) %>%
+  # dplyr::select(date, GPP, ER, discharge.daily, max_light, med_light,
+  #        temp) %>%
   mutate(GPP = ifelse(GPP < 0, NA, GPP),
-         period = if_else(year(date) < 2005, 0, 1)) %>%
+         ER = ifelse(ER > 0, NA, ER),
+         NEP = GPP + ER,
+         period = if_else(year(date) < 2011, "pre", "post")) %>%
+  select(-NPP) %>%
   distinct(date, .keep_all = TRUE)
 
-df_use
+write_excel_csv2(df_use, "data_for_regression_v2.csv")
 
 
 df_use_subs <- df_use %>%
-  dplyr::select(-date, ) %>%
+  # mutate(tf = if_else(year(date) > 2005, "post", "pre")) %>%
+  drop_na() %>%
+  dplyr::select(-date, -max_light, -ER) %>%
   as.data.frame()
 
 # Scaled data
@@ -62,13 +76,13 @@ scaled_df <- scale(df_use_subs) %>%
   as.data.frame()
 
 # Interactions
-fit_int <- lm(sqrt(GPP) ~ SPM * period, data = df_use_subs)
+fit_int <- lm(GPP ~ discharge.daily*period, data = df_use_subs)
 summary(fit_int)
-interact_plot(fit_int, pred = SPM, modx = period, linearity.check = TRUE,
-              partial.residuals = TRUE, plot.points = TRUE)
+anova(fit_ints, fit_int2)
+interact_plot(fit_int, pred = discharge.daily, modx = period)
 
 regsubsets.out <-
-  regsubsets(GPP ~ discharge.daily + med_light + temp + DOC + NO3 + PO4 + CHLA,
+  regsubsets(GPP ~ discharge.daily + med_light + temp + DOC + NO3 + PO4,
              data = df_use_subs,
              nbest = 1,       # 1 best model for each number of predictors
              nvmax = NULL,    # NULL for no limit on number of variables
@@ -166,11 +180,11 @@ bic
 press <- map_df(subs, PRESS_fun)
 
 # Assumptions met, check for outliers in y-space
-mod <- lm(GPP ~ discharge.daily + temp + CHLA + SPM + max_light + DOC, data = df_use_subs) # Final model
+mod <- lm(GPP ~ (discharge.daily + med_light) * period, data = df_use_subs) # Final model
 out.df <- data.frame(pred = predict(mod),
                      resid = rstudent(mod))
-mod2 <- lm(GPP ~ discharge.daily + temp + max_light, data = df_use_subs)
-library(jtools)
+mod2 <- lm(GPP ~ discharge.daily + med_light, data = df_use_subs)
+
 summ(mod, scale = TRUE, vifs = TRUE)
 effect_plot(mod, pred = CHLA, interval = TRUE, plot.points = TRUE)
 plot_summs(mod, mod2, scale = TRUE)
@@ -197,6 +211,12 @@ abline(-2, 0, col = "red")
 
 # Check for outliers in x-space
 h <- hatvalues(model_trans)
+# h.df <- data.frame(
+#                    h = h,
+#                    Index = 1:51)
+# levels(h.df$state) <- c(levels(h.df$state), "DC")
+# h.df$state[h.df$state == "District of Columbia"] <- "DC"
+
 hlim <- (2 * 6 / 189)
 plot(h,
      ylab = "Hat values")
@@ -208,3 +228,18 @@ with(subset(h.df, h >= hlim),
 cooks <- cooks.distance(model_trans)
 c.df <- data.frame(state = df_use_subs$GPP,
                    c = cooks)
+
+plot(cooks,
+     ylab = "Cook's Distance")
+abline(1, 0, col = "red")
+with(subset(c.df, c >= 1),
+     text(Index, c, state, pos = 4, offset = 0.8))
+
+# Check for multicollinearity
+vif(model_trans)
+
+# Condition number
+states$Pres.bin <- ifelse(states$Pres == "RED", 0 , 1)
+mod.bin <- lm(inv_inc ~ Education + CO2 + Pres.bin, data = states)
+library(perturb)
+colldiag(mod.bin)

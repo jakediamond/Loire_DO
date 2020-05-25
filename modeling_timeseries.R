@@ -1,6 +1,7 @@
 library(mcp)
 library(earlywarnings)
 library(lmtest)
+library(rEDM)
 set.seed(42)  # For consistent "random" results
 # Model
 model_gpp = list(gpp ~ 1 + ar(1))
@@ -159,7 +160,7 @@ plot(df2)
 df$par <- 0.5*(540+440*sin(2*pi*df$time/365-1.4))
 
 # Model gpp as function of light
-model_gpp_light = list(gpp_light ~ 0 + ar(1) + par)
+model_gpp_light = list(gpp_light ~ 0 + par)
 
 # Simulate data
 empty_gpp_light = mcp(model_gpp_light, sample = FALSE)
@@ -167,33 +168,43 @@ empty_gpp_light = mcp(model_gpp_light, sample = FALSE)
 df$gpp_light = empty_gpp_light$simulate(
   df$par, 
   par_1 = 0.05, 
-  ar1_1 = 0.9, 
+  # ar1_1 = 0.9, 
   sigma_1 = 1.5)
 plot(df$time, df$gpp_light)
-
-# Model ER as function of GPP_light
-model_er_light <- list(er_light ~ 0 + gpp_light)
+acf(df$gpp_light, 1)$acf
+# Model AR as function of GPP_light
+model_ar_light <- list(ar_light ~ 0 + gpp_light)
 # Simulate data
-empty_er_light = mcp(model_er_light, sample = FALSE)
-df$er_light = empty_er$simulate(
+empty_ar_light = mcp(model_ar_light, sample = FALSE)
+df$ar_light = empty_ar_light$simulate(
   df$gpp_light, 
-  gpp_1 = -1, 
+  gpp_light_1 = -0.5, 
+  # ar1_1 = 0.9,
   sigma_1 = 1.5)
-plot(df$time, df$er_light)
+
+# Estimate flushing rate as an increasing function over time
+df$flushing <- seq(0.9, 0.05, -0.85/(length(df$gpp_light)-1))
+
+# Estimate biomass standing stock
+df$bm <- NA
+df$bm[1] <- 0.5*df$gpp_light[1]
+df$bm <- dplyr::lag(df$bm) + df$gpp_light/2 - dplyr::lag(df$flushing) - dplyr::lag(df$hr)
+
 
 df$nepl <- df$gpp_light + df$er_light
 
 # Model ER as AR1 with similar magnitude to GPPlight, but not a function of GPPlight
-model_er_light2 <- list(er_light2 ~ 0 + ar(1) + par)
+model_er_light2 <- list(er_light2 ~ 0 + par)
 # Simulate data
 empty_er_light2 = mcp(model_er_light2, sample = FALSE)
 df$er_light2 = empty_er_light2$simulate(
   df$par, 
   par_1 = -0.05, 
-  ar1_1 = 0.9, 
+  # ar1_1 = 0.9, 
   sigma_1 = 1.5)
-plot(df$time, df$er_light2)
-
+plot(df$time, df$er_light2, ylim = c(-30,30))
+points(df$time, df$gpp_light, col = "red")
+df$nepl2 <- df$gpp_light + df$er_light2
 # Simple correlation of the two ER/GPP regimes
 plot(df$gpp_light, df$er_light)
 plot(df$gpp_light, df$er_light2)
@@ -211,3 +222,23 @@ generic_ews(df$er, winsize = 33)
 generic_ews(df$nep, winsize = 33)
 generic_ews(df$er2, winsize = 33)
 generic_ews(df$nepl, winsize = 33)
+generic_ews(df$nepl2, winsize = 33)
+
+# CCM analysis of the two
+rho_E <- EmbedDimension(dataFrame = df, columns = "gpp_light", target = "er_light",
+                        lib = "1 600", pred = "1 600", showPlot = TRUE)
+E = 3
+rho_theta = PredictNonlinear(dataFrame = df, columns = "gpp_light", target = "er_light",
+                                lib = "1 600", pred = "1 600", E = E)
+
+test<- CCM(dataFrame = df, E = E, Tp = 0, columns = "gpp_light", 
+           target = "er_light", libSizes = "10 100 5", sample = 300, 
+                        showPlot = TRUE)
+acf(df$gpp_light, 1)$acf
+acf(df$er_light, 1)$acf
+acf(df$er_light2, 1)$acf
+df$gpp_real <- df_met[1:800, "GPP"]
+df$nep_test <- as.vector(df$gpp_real)-as.vector(df$er_light)
+acf(df$nep_test)$acf
+plot(df$nep_test, y = df$nepl)
+st

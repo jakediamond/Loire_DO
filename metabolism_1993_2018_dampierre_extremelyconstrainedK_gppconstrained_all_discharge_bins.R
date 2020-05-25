@@ -57,7 +57,7 @@ df_q$discharge.daily <- ifelse(df_q$discharge.daily < 0,
 # Light data is in J/cm2/hr, need to convert to umol/m2/s
 df_light <- read_excel("Data/Meteo/radiation_dampierre.xlsx") %>%
   select(site = NOM, datetime = DATE, light = GLO) %>%
-  mutate(light = light * 10000*2.1/3600,
+  mutate(light = light * 2.1,
          datetime = ymd_h(datetime)) %>%
   filter(!(site == "SANCERRE" & datetime > ymd_h("2010-08-25-00"))) %>%
   select(-site)
@@ -73,7 +73,7 @@ df <- readRDS("Data/all_DO_cleaned") %>%
   left_join(readRDS("Data/all_DO_data") %>%
               select(var, site, datetime, value) %>%
               filter(var == "T", site == "dampierre") %>%
-              mutate(var = recode(var,
+              mutate(var = dplyr::recode(var,
                                   `T` = "temp.water")) %>%
               spread(var, value)) %>%
   left_join(readRDS("Data/Loire_DO/dampierre_temp_estimates"), by = "datetime") %>%
@@ -119,8 +119,23 @@ df <- depth %>%
 
 df_send <- df %>%
   mutate(date = date(datetime)) %>%
-  select(datetime, date, DO = DO_use, depth, temp = temp.water, DO.sat, light) %>%
-  left_join(df_q, by = "date")
+  select(datetime, date, DO = DO_use, temp = temp.water, DO.sat, light) %>%
+  left_join(df_q, by = "date") %>%
+  ungroup() %>%
+  group_by(date) %>%
+  summarize(max_light = max(light[light > 0], na.rm = TRUE),
+            med_light = median(light[light > 0], na.rm = TRUE),
+            q99_light = quantile(light[light > 0], 0.99, na.rm = TRUE),
+            q95_light = quantile(light[light > 0], 0.95, na.rm = TRUE),
+            q90_light = quantile(light[light > 0], 0.90, na.rm = TRUE),
+            sum_light = sum(light[light > 0], na.rm = TRUE),
+            discharge = mean(discharge.daily, na.rm = TRUE),
+            med_temp = median(temp, na.rm = TRUE),
+            max_DO = max(DO, na.rm = TRUE),
+            min_DO = min(DO, na.rm = TRUE),
+            mean_DO = mean(DO, na.rm = TRUE))
+saveRDS(df_send, "metabolism_data_summary")
+write_excel_csv2(df_send, "metabolism_data_summary")
 write_excel_csv(df_send, "data_for_alain.csv")
 
 # Split data into five analysis periods to reduce memory needed for each run
