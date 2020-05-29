@@ -14,7 +14,7 @@ library(ggrepel)
 library(scales)
 library(patchwork)
 library(ggpmisc)
-library(ggsci)
+library(hydrostats)
 
 # All solute data ---------------------------------------------------------
 # Load raw data
@@ -24,7 +24,8 @@ df_solutes_p <- df_solutes %>%
   filter_at(vars(value), all_vars(!is.na(.)))
 # Data for plots with monthly averages (get rid of one weird data point for spm)
 df_solutes_p <- df_solutes_p %>%
-  dplyr::filter(!(solute == "SPM" & year == 1982)) %>%
+  dplyr::filter(!(solute == "SPM" & year == 1982),
+                !(solute == "BOD5" & year < 1987)) %>%
   group_by(solute, year, month) %>%
   summarize(date = mean(date),
             month_mean = mean(value, na.rm = TRUE)) %>%
@@ -68,49 +69,13 @@ p_solutes_all <- ggplot(data = filter(df_solutes_p,
   ylab(expression("concentration (mg "~L^{-1}*")"))
 p_solutes_all
 ggsave(plot = p_solutes_all,
-       filename = "Figures/Middle_Loire/supplementary/all_solute_data.tiff",
-       device = "tiff",
+       filename = "Figures/Middle_Loire/supplementary/all_solute_data.png",
+       device = "png",
        dpi = 300,
        width = 18.4,
        height = 9.2,
        units = "cm")
 
-
-# Concentration discharges ----------------------------------
-# Load discharge data and join to solutes
-df_q <- readRDS("Data/dampierre_discharge_daily")
-df_cq <- left_join(df_solutes, df_q) %>%
-  distinct()
-quantile(df_q$discharge.daily, 0.5, na.rm = T)
-# Clean data and add rough periods based on breakpoints (2004)
-df_cq <- df_cq %>%
-  filter_at(vars(discharge.daily, value), all_vars(!is.na(.))) %>%
-  mutate(period = if_else(year < 2004, 1, 2))
-
-p_cq <- ggplot(data = filter(df_cq, year > 1990,
-                             between(month,5,9),
-                             discharge.daily < 216,
-                             solute %in% c("PO4", "BOD5", "NO3")),
-       aes(x = discharge.daily,
-           y = value,
-           color = as.factor(period))) + 
-  geom_point(alpha = 0.7) +
-  scale_y_log10() +
-  scale_x_log10() +
-  stat_smooth(method = "lm") +
-  facet_wrap(~solute, scales = "free_y") + 
-  scale_color_viridis_d(name = "period") +
-  theme_bw() + 
-  xlab("Discharge (m3/s)") +
-  ylab("Parameter value")
-p_cq
-ggsave(p_cq,
-       filename = "Figures/Middle_Loire/supplementary/solute_CQ.tiff",
-       device = "tiff",
-       dpi = 300,
-       width = 18.4,
-       height = 18.4,
-       units = "cm")
 # Metabolism supplementary ------------------------------------------------
 # Load metabolism data
 df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins")
@@ -647,11 +612,19 @@ p_gpp_plot
 
 # Hydrostatistics ---------------------------------------------------------
 # Hydrostatistics
+# Load discharge data and join to solutes
+df_q <- readRDS("Data/Discharge/dampierre_discharge_for_metab") %>%
+  mutate(Q = ifelse(discharge.daily < 0, NA, discharge.daily),
+         Date = as.POSIXct(date)) %>%
+  select(Q, Date)
+# Calculate
 df_q_stat <- df_q %>%
   group_by(year(Date)) %>%
   nest() %>%
-  mutate(ls = future_map(data, high.spells, threshold = 150)) %>%
+  mutate(ls = map(data, low.spells, threshold = 150)) %>%
   unnest(ls)
+plot(df_q_stat$max.low.duration)
+
 df_q_stat <- high.spell.lengths(df_q, threshold = 150) %>%
   mutate(end_date = start.date + days(spell.length))
 
@@ -666,8 +639,8 @@ myrleid <- function(x) {
 }
 # delta df_q
 df_q_stat <- df_q %>%
-  mutate(del = Q - lag(Q),
-         date = as.Date(Date),
+  mutate(del = discharge.daily - lag(discharge.daily),
+         date = as.Date(date),
          sign = sign(del),
          run = myrleid(sign)) %>%
   group_by(run) %>%
@@ -952,3 +925,216 @@ fp <- fingerprint +
   theme_bw(base_size=7) +
   xlab(expression(GPP~(g~O[2]~m^{-2}~d^{-1})))+
   ylab(expression(ER~(g~O[2]~m^{-2}~d^{-1})))
+
+
+# Raw metabolism inputs ---------------------------------------------------
+df_raw <- readRDS("metabolism_data_summary") %>%
+  na_kalman() %>%
+  mutate(season = if_else(between(month(date), 4, 10), "summer", "winter"))
+
+p_q <- ggplot(data = df_raw,
+              aes(x = date,
+                  y = discharge,
+                  color = season,
+                  group = 1)) + 
+  scale_color_manual(name = "season",
+                     values = c("black", "grey")) +
+  theme_bw(base_size = 8) + geom_line() +
+  scale_x_date(limits = c(ymd("1993-01-01"), ymd("2019-01-01")),
+               breaks = seq(ymd("1995-01-01"), ymd("2019-01-01"),
+                            "5 years"),
+               labels = date_format("%Y"),
+               minor_breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
+                                  "1 years")) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.tag.position = c(0.1,0.95)) +
+  xlab("") +
+  ylab(expression(atop("discharge","("*m^3~s^{-1}*")")))
+p_q
+
+p_light <- ggplot(data = df_raw,
+                  aes(x = date,
+                      y = med_light)) + 
+  theme_bw(base_size = 8) + geom_line() +
+  scale_x_date(limits = c(ymd("1993-01-01"), ymd("2019-01-01")),
+               breaks = seq(ymd("1995-01-01"), ymd("2019-01-01"),
+                            "5 years",
+               ),
+               minor_breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
+                                  "1 years"),
+               labels = date_format("%Y")) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.tag.position = c(0.1,0.95)) +
+  xlab("") +
+  ylab(expression(atop("PAR","("*mu*"mol"~m^{-2}~s^{-1}*")")))
+p_light
+
+p_temp <- ggplot(data = df_raw,
+                 aes(x = date,
+                     y = med_temp)) + 
+  theme_bw(base_size = 8) + geom_line() +
+  scale_x_date(limits = c(ymd("1993-01-01"), ymd("2019-01-01")),
+               breaks = seq(ymd("1995-01-01"), ymd("2019-01-01"),
+                            "5 years"),
+               minor_breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
+                                  "1 years"),
+               labels = date_format("%Y")) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        plot.tag.position = c(0.1,0.95)) +
+  xlab("") +
+  ylab(expression(atop("water temperature", "("*degree*C*")")))
+p_temp
+
+# Load long term DO data
+df_do <- readRDS("Data/all_DO_cleaned") %>%
+  group_by(site) %>%
+  distinct(datetime, .keep_all = TRUE) %>%
+  arrange(datetime) %>%
+  ungroup() %>%
+  filter(site == "dampierre") %>%
+  left_join(readRDS("Data/all_DO_data") %>%
+              dplyr::filter(var == "T",
+                            site == "dampierre") %>%
+              select(datetime, temp = value),
+            by = "datetime") %>%
+  left_join(readRDS("Data/Loire_DO/dampierre_temp_estimates"), by = "datetime") %>%
+  mutate(temp = ifelse(is.na(temp), temp.water, temp)) %>%
+  select(-date, -temp.water) %>%
+  # na_kalman() %>%
+  mutate(DO_sat = ifelse(temp <= 0,
+                         0,
+                         14.652 - 0.41022 * temp + 0.007991 * 
+                           temp^2 - 0.000077774 * temp^3),
+         DO_per = DO_use / DO_sat)
+# Calculate monthly running 90-day means of DO per. sat. min and max
+df_do_rm <- df_do %>%
+  mutate(date = date(datetime)) %>%
+  group_by(date) %>%
+  summarize(max = max(DO_per, na.rm = TRUE),
+            min = min(DO_per, na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(date) %>%
+  mutate(max = ifelse(is.infinite(max), NA, max),
+         min = ifelse(is.infinite(min), NA, min),
+         rm_max = rollapply(max, width=90, FUN=function(x)
+           mean(x, na.rm=TRUE), by=1, by.column=TRUE, partial=TRUE,
+           fill=NA, align="right"),
+         rm_min = rollapply(min, width=90, FUN=function(x)
+           mean(x, na.rm=TRUE), by=1, by.column=TRUE, partial=TRUE,
+           fill=NA, align="right")) %>%
+  pivot_longer(cols = c(rm_max, rm_min))
+p_do <- ggplot() + 
+  geom_line(data = df_do_rm,
+            aes(x = date,
+                y = value * 100, #for % saturation
+                color = name)) +
+  scale_color_manual(name = "90-d running mean",
+                     breaks = c("rm_max", "rm_min"),
+                     labels = c("daily max", "daily min"),
+                     values = c("black", "dark grey")) +
+  scale_x_date(limits = c(ymd("1993-01-01"), ymd("2019-01-01")),
+               breaks = seq(ymd("1995-01-01"), ymd("2019-01-01"),
+                            "5 years",
+               ),
+               minor_breaks = seq(ymd("1995-01-01"), ymd("2020-01-01"),
+                                  "1 years"),
+               labels = date_format("%Y")) +
+  geom_hline(aes(yintercept = 100)) +
+  theme_bw(base_size = 8) +
+  theme(axis.title.x = element_blank(),
+        legend.position = c(0.85, 0.85),
+        legend.key.height = unit(0.2, "cm"),
+        legend.background = element_rect(fill = alpha('white', 0.1)),
+        plot.tag.position = c(0.1,0.95)) +
+  xlab("") +
+  ylab(expression(atop("DO saturation", "(%)")))
+p_do
+
+# Plot all that data in monthly form
+((p_q / p_light/ p_temp / p_do) + plot_annotation(tag_levels = 'a'))%>%
+  ggsave(filename = "Figures/Middle_Loire/supplementary/monthly_inputs_summary_final.svg",
+         device = "svg",
+         dpi = 300,
+         width = 183,
+         height = 100,
+         units = "mm")
+
+
+# Nonlinear analysis ------------------------------------------------------
+library(broom)
+df_nl <- df_raw %>%
+  filter(between(month(date), 4, 10)) %>%
+  mutate(base = if_else(discharge <= 150, "base", "storm"),
+         regime = if_else(year(date) < 2015, "phytoplankton", "macrophyte")) %>%
+  left_join(df_met) %>%
+  mutate(GPP = if_else(GPP < 0, NA_real_, GPP))
+pl
+# Baseflow phyto regime
+base_phyto <- nls(GPP ~ a*sum_light^b, 
+    data = filter(df_nl, base == "base", regime == "phytoplankton"),
+    start = list(a=0.007, b=0.8))
+
+predict_base_phyto <- tibble(sum_light = seq(0, 20000, 1000),
+                             prediction = predict(base_phyto, 
+                                                  newdata = data.frame(sum_light = seq(0, 20000, 1000))),
+                             regime = "phytoplankton",
+                             base = "base")
+# Base flow macrophtyes
+base_macro <- nls(GPP ~ a*sum_light^b, 
+                  data = filter(df_nl, base == "base", regime == "macrophyte"),
+                  start = list(a=0.014, b=0.7))
+
+predict_base_macro <- tibble(sum_light = seq(0, 20000, 1000),
+                             prediction = predict(base_macro, 
+                                                  newdata = data.frame(sum_light = seq(0, 20000, 1000))),
+                             regime = "macrophyte",
+                             base = "base")
+
+# stormflow phyto
+storm_phyto <- nls(GPP ~ a*sum_light^b, 
+                  data = filter(df_nl, base == "storm", regime == "phytoplankton"),
+                  start = list(a=0.0001, b=0.7))
+summary(storm_phyto)
+predict_storm_phyto <- tibble(sum_light = seq(0, 20000, 1000),
+                             prediction = predict(storm_phyto, 
+                                                  newdata = data.frame(sum_light = seq(0, 20000, 1000))),
+                             regime = "phytoplankton",
+                             base = "storm")
+
+# stormflow macro
+storm_macro <- nls(GPP ~ a*sum_light^b, 
+                   data = filter(df_nl, base == "storm", regime == "macrophyte"),
+                   start = list(a=0.00001, b=1.2))
+summary(storm_macro)
+predict_storm_macro <- tibble(sum_light = seq(0, 20000, 1000),
+                              prediction = predict(storm_macro, 
+                                                   newdata = data.frame(sum_light = seq(0, 20000, 1000))),
+                              regime = "macrophyte",
+                              base = "storm")
+predicts <- bind_rows(predict_storm_phyto, predict_storm_macro, 
+                      predict_base_macro, predict_base_phyto)
+
+ggplot() +
+  geom_point(data = df_nl,
+             aes(x = sum_light,
+                 y = GPP,
+                 color = regime,
+                 shape = base),
+             alpha = 0.2) +
+  geom_line(data = predicts,
+            aes(x = sum_light,
+                y = prediction,
+                color = regime,
+                linetype = base),
+            size = 1.5) +
+  scale_color_manual(values = c("dark red", "dark blue")) +
+  scale_shape_manual(name = "flow",
+                     values = c(1, 17)) +
+  scale_linetype_discrete(name = "flow") +
+  theme(legend.position = c(0.16,0.77)) +
+  
+
+                     
