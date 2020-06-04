@@ -8,13 +8,19 @@
 setwd("Z:/Loire_DO")
 
 # Load libraries
-library(tidyverse)
+library(car)
+library(MASS)
+library(readxl)
+library(leaps)
+library(broom)
+library(imputeTS)
 library(lubridate)
 library(ggrepel)
 library(scales)
 library(patchwork)
 library(ggpmisc)
 library(hydrostats)
+library(tidyverse)
 
 # All solute data ---------------------------------------------------------
 # Load raw data
@@ -166,6 +172,155 @@ df_met %>%
   geom_point() + geom_line() +
   geom_smooth(method = "lm") +
   facet_wrap(~month)
+
+# Multiple regression analysis --------------------------------------------
+# Load some data
+library(jtools)
+
+df_wq_reg <- readRDS("Data/Loire_DO/middle_loire_wq") %>%
+  pivot_wider(names_from = solute, values_from = value)
+df_q <- readRDS("Data/Discharge/dampierre_discharge_for_metab")
+df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins")
+df_light <- readRDS("Data/Loire_DO/light_dampierre_for_metab") %>%
+  mutate(date = date(datetime)) %>%
+  group_by(date) %>%
+  summarize(max_light = max(light, na.rm = TRUE),
+            med_light = sum(light, na.rm = TRUE))
+df_t <- readRDS("Data/Loire_DO/temp_median_dampierre")
+df_use <- df_wq_reg %>%
+  left_join(df_q) %>%
+  left_join(df_met) %>%
+  left_join(df_light) %>%
+  left_join(ungroup(df_t)) %>%
+  ungroup() %>%
+  filter(between(month, 4, 9)) %>%
+  dplyr::select(date, GPP, discharge.daily, med_light,
+                temp, SPM, PO4, CHLA, NO3, DOC) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         period = if_else(year(date) < 2005, 0, 1)) %>%
+  distinct(date, .keep_all = TRUE)
+
+df_use
+
+
+df_use_subs <- df_use %>%
+  dplyr::select(-date, ) %>%
+  as.data.frame()
+
+# Scaled data
+scaled_df <- scale(df_use_subs) %>%
+  as.data.frame()
+
+# Best subsets
+regsubsets.out <-
+  regsubsets(GPP ~ discharge.daily + med_light + temp + DOC + NO3 + PO4 + CHLA,
+             data = df_use_subs,
+             nbest = 1,       # 1 best model for each number of predictors
+             nvmax = NULL,    # NULL for no limit on number of variables
+             force.in = NULL, force.out = NULL,
+             method = "exhaustive")
+regsubsets.out
+summary.out <- summary(regsubsets.out)
+as.data.frame(summary.out$outmat)
+layout(matrix(1:1, ncol = 1))
+## Adjusted R2
+res.legend <-
+  subsets(regsubsets.out, statistic="adjr2", legend = FALSE, min.size = 5, main = "Adjusted R^2")
+## Mallow Cp
+res.legend <-
+  subsets(regsubsets.out, statistic="cp", legend = FALSE, min.size = 5, main = "Mallow Cp")
+abline(a = 1, b = 1, lty = 2)
+summary.out
+
+
+
+
+
+
+# Fit the full model with no transformations
+model1 <- lm(df_use_subs)
+summary(model1)
+
+# Check Assumptions
+m1_resids <- rstudent(model1) #Studentized residuals for model 2
+m1_pred <- predict(model1) #Predicted values for model 2
+plot(m1_pred, m1_resids, #Plot the residuals vs predicted
+     main = "Full model residual vs predicted",
+     xlab = "Predicted",
+     ylab = "Residuals"
+)
+qqnorm(m1_resids)
+qqline(m1_resids)
+
+# Conduct transformation
+bc <- boxcox(model1)
+trans <- bc$x[which.max(bc$y)]
+
+# Transformation suggests lambda = 0.3, but we use 0.5 to round and for simplicity
+df_use_subs$GPP <- df_use_subs$GPP^0.5
+
+# Run new model (don't need to transform predictor variables)
+model_trans <- lm(df_use_subs)
+summary(model_trans)
+
+# Check assumptions
+mtrans_resids <- rstudent(model_trans) #Studentized residuals for transformed model
+mtrans_pred <- predict(model_trans) #Predicted values for transformed model
+plot(mtrans_pred, mtrans_resids, #Plot the residuals vs predicted
+     main = "Transformed model residual vs predicted",
+     xlab = "Predicted",
+     ylab = "Residuals"
+)
+qqnorm(mtrans_resids)
+qqline(mtrans_resids)
+
+# Best subsets procedure
+subsets <- regsubsets(GPP ~ ., 
+                      data = df_use_subs, nvmax = 6)
+summary(subsets)
+
+# Best subsets are E, SE, ECP, and SECP
+subs <- tibble(mods = list(lm(GPP ~ discharge.daily, data = df_use_subs),
+                           lm(GPP ~ discharge.daily + temp, data = df_use_subs),
+                           lm(GPP ~ discharge.daily + temp + med_light, data = df_use_subs),
+                           lm(GPP ~ discharge.daily + temp + CHLA + SPM, data = df_use_subs),
+                           lm(GPP ~ discharge.daily + temp + CHLA + SPM + med_light, data = df_use_subs),
+                           lm(GPP ~ discharge.daily + temp + CHLA + SPM + med_light + DOC, data = df_use_subs)
+                           
+))
+
+# Create function for calculating PRESS
+PRESS_fun <- function(mod) {
+  # calculate the predictive residuals
+  pr <- residuals(mod)/(1 - lm.influence(mod)$hat)
+  # calculate the PRESS
+  PRESS <- sum(pr^2)
+  return(PRESS)
+}
+
+# Get all summary stats for best subsets
+cp <- summary(subsets)$cp
+cp
+adjr2 <- summary(subsets)$adjr2
+adjr2
+msres <- (summary(subsets)$rss) / nrow(df_use_subs)
+bic <- summary(subsets)$bic
+bic
+press <- map(subs$mods, PRESS_fun)
+
+# Assumptions met, check for outliers in y-space
+mod <- lm(GPP ~ discharge.daily + temp + CHLA + SPM + med_light + DOC, data = df_use_subs) # Final model
+out.df <- data.frame(pred = predict(mod),
+                     resid = rstudent(mod))
+mod2 <- lm(GPP ~ discharge.daily + temp + med_light, data = df_use_subs)
+
+summ(mod, scale = TRUE, vifs = TRUE)
+effect_plot(mod, pred = CHLA, interval = TRUE, plot.points = TRUE)
+plot_summs(mod, mod2, scale = TRUE)
+export_summs(mod, scale = TRUE, vifs = TRUE,
+             error_pos = "right", ci_level = 0.95,
+             statistics = "all",
+             to.file = "xlsx", file.name = "Data/Loire_DO/mult_reg.xlsx")
 
 # Trend analysis ----------------------------------------------------------
 # Time series analysis
@@ -1064,19 +1219,24 @@ p_do
 
 
 # Nonlinear analysis ------------------------------------------------------
-library(broom)
+# Load raw metabolism data
+df_raw <- readRDS("metabolism_data_summary") %>%
+  na_kalman() %>%
+  mutate(season = if_else(between(month(date), 4, 10), "summer", "winter"))
+
+# add information for regime and storm flow
 df_nl <- df_raw %>%
   filter(between(month(date), 4, 10)) %>%
   mutate(base = if_else(discharge <= 150, "base", "storm"),
-         regime = if_else(year(date) < 2015, "phytoplankton", "macrophyte")) %>%
+         regime = if_else(year(date) < 2014, "phytoplankton", "macrophyte")) %>%
   left_join(df_met) %>%
   mutate(GPP = if_else(GPP < 0, NA_real_, GPP))
-pl
+
 # Baseflow phyto regime
 base_phyto <- nls(GPP ~ a*sum_light^b, 
     data = filter(df_nl, base == "base", regime == "phytoplankton"),
     start = list(a=0.007, b=0.8))
-
+summary(base_phyto)
 predict_base_phyto <- tibble(sum_light = seq(0, 20000, 1000),
                              prediction = predict(base_phyto, 
                                                   newdata = data.frame(sum_light = seq(0, 20000, 1000))),
@@ -1086,7 +1246,7 @@ predict_base_phyto <- tibble(sum_light = seq(0, 20000, 1000),
 base_macro <- nls(GPP ~ a*sum_light^b, 
                   data = filter(df_nl, base == "base", regime == "macrophyte"),
                   start = list(a=0.014, b=0.7))
-
+summary(base_macro)
 predict_base_macro <- tibble(sum_light = seq(0, 20000, 1000),
                              prediction = predict(base_macro, 
                                                   newdata = data.frame(sum_light = seq(0, 20000, 1000))),
@@ -1117,24 +1277,36 @@ predict_storm_macro <- tibble(sum_light = seq(0, 20000, 1000),
 predicts <- bind_rows(predict_storm_phyto, predict_storm_macro, 
                       predict_base_macro, predict_base_phyto)
 
-ggplot() +
+p_nl <- ggplot() +
   geom_point(data = df_nl,
              aes(x = sum_light,
                  y = GPP,
                  color = regime,
                  shape = base),
-             alpha = 0.2) +
+             alpha = 0.5) +
   geom_line(data = predicts,
             aes(x = sum_light,
                 y = prediction,
                 color = regime,
                 linetype = base),
             size = 1.5) +
+  theme_bw(base_size = 8) +
   scale_color_manual(values = c("dark red", "dark blue")) +
   scale_shape_manual(name = "flow",
                      values = c(1, 17)) +
   scale_linetype_discrete(name = "flow") +
-  theme(legend.position = c(0.16,0.77)) +
-  
+  theme(legend.position = c(0.16,0.75),
+        legend.background = element_rect(fill = "transparent")) +
+  ylab(expression(GPP~(g~O[2]~m^{-2}~d^{-1}))) +
+  xlab(expression(sum~of~daily~PAR~(mu*"mol"~m^{-2}~d^{-1})))
 
+ggsave(plot = p_nl,
+       filename = "Figures/Middle_Loire/supplementary/nonlinear.png",
+       width = 92,
+       height = 92,
+       units = "mm",
+       device = "png",
+       dpi = 300)  
+
+                     
                      
