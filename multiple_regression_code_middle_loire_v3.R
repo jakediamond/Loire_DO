@@ -1,24 +1,74 @@
-df_use <- df_send %>%
+# Purpose: To regress variables with GPP/ER, for middle Loire River
+# Author: Jake Diamond
+# Date: January 10, 2020
+# 
+
+# Set working directory
+setwd("Z:/Loire_DO")
+# setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
+
+# Load libraries
+library(lubridate)
+library(scales)
+library(furrr)
+library(patchwork)
+library(car)
+library(MASS)
+library(readxl)
+library(leaps)
+library(tidyverse)
+library(conflicted)
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+
+# # Set the plotting theme
+theme_set(theme_bw(base_size=7)+
+            theme(panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank()))
+
+# Load some data
+df_wq_reg <- readRDS("Data/Loire_DO/middle_loire_wq") %>%
+  pivot_wider(names_from = solute, values_from = value)
+df_q <- readRDS("Data/Discharge/dampierre_discharge_for_metab")
+df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins")
+df_light <- readRDS("Data/Loire_DO/light_dampierre_for_metab") %>%
+  mutate(date = date(datetime)) %>%
+  group_by(date) %>%
+  summarize(max_light = max(light, na.rm = TRUE),
+            med_light = sum(light, na.rm = TRUE))
+df_t <- readRDS("Data/Loire_DO/temp_median_dampierre")
+df_use <- df_wq_reg %>%
+  left_join(df_q) %>%
+  left_join(df_met) %>%
+  left_join(df_light) %>%
+  left_join(ungroup(df_t)) %>%
   ungroup() %>%
   filter(between(month, 4, 9)) %>%
-  dplyr::select(date, GPP, ER, K600.daily, discharge.daily, max_light, med_light,
-         temp, DOC, NO3, PO4, CHLA, SPM) %>%
-  mutate(GPP = ifelse(GPP < 0, NA, GPP)) %>%
+  dplyr::select(date, GPP, discharge.daily, med_light,
+         temp, SPM, PO4, CHLA, NO3, DOC) %>%
+  mutate(GPP = ifelse(GPP < 0, NA, GPP),
+         period = if_else(year(date) < 2005, 0, 1)) %>%
   distinct(date, .keep_all = TRUE)
 
+df_use
 
-df_use_subs <- df_use %>%
-  drop_na() %>%
-  dplyr::select(-date, -med_light, -ER) %>%
+
+df_use_subs2 <- df_use %>%
+  # dplyr::select(-date, ) %>%
   as.data.frame()
 
 # Scaled data
 scaled_df <- scale(df_use_subs) %>%
   as.data.frame()
 
-library(leaps)
+# Interactions
+fit_int <- lm(sqrt(GPP) ~ SPM * period, data = df_use_subs)
+summary(fit_int)
+interact_plot(fit_int, pred = SPM, modx = period, linearity.check = TRUE,
+              partial.residuals = TRUE, plot.points = TRUE)
+
 regsubsets.out <-
-  regsubsets(GPP ~ K600.daily + discharge.daily + max_light + temp + DOC + NO3 + PO4 + CHLA,
+  regsubsets(GPP ~ discharge.daily + med_light + temp + DOC + NO3 + PO4 + CHLA,
              data = df_use_subs,
              nbest = 1,       # 1 best model for each number of predictors
              nvmax = NULL,    # NULL for no limit on number of variables
@@ -28,7 +78,7 @@ regsubsets.out
 summary.out <- summary(regsubsets.out)
 as.data.frame(summary.out$outmat)
 plot(regsubsets.out, scale = "adjr2", main = "Adjusted R^2")
-library(car)
+
 layout(matrix(1:1, ncol = 1))
 ## Adjusted R2
 res.legend <-
@@ -42,9 +92,8 @@ abline(a = 1, b = 1, lty = 2)
 
 
 
-library(car)
-library(MASS)
-library(leaps)
+
+
 
 # Fit the full model with no transformations
 model1 <- lm(df_use_subs)
@@ -91,10 +140,10 @@ summary(subsets)
 # Best subsets are E, SE, ECP, and SECP
 subs <- tibble(mods = list(lm(GPP ~ discharge.daily, data = df_use_subs),
                            lm(GPP ~ discharge.daily + temp, data = df_use_subs),
-                           lm(GPP ~ discharge.daily + temp + max_light, data = df_use_subs),
+                           lm(GPP ~ discharge.daily + temp + med_light, data = df_use_subs),
                            lm(GPP ~ discharge.daily + temp + CHLA + SPM, data = df_use_subs),
-                           lm(GPP ~ discharge.daily + temp + CHLA + SPM + max_light, data = df_use_subs),
-                           lm(GPP ~ discharge.daily + temp + CHLA + SPM + max_light + DOC, data = df_use_subs)
+                           lm(GPP ~ discharge.daily + temp + CHLA + SPM + med_light, data = df_use_subs),
+                           lm(GPP ~ discharge.daily + temp + CHLA + SPM + med_light + DOC, data = df_use_subs)
                            
 ))
 
@@ -118,13 +167,16 @@ bic
 press <- map_df(subs, PRESS_fun)
 
 # Assumptions met, check for outliers in y-space
-mod <- lm(GPP ~ discharge.daily + temp + CHLA + SPM + max_light + DOC, data = df_use_subs) # Final model
+mod <- lm(GPP ~ (CHLA) * period, data = df_use_subs2) # Final model
 out.df <- data.frame(pred = predict(mod),
                      resid = rstudent(mod))
-mod2 <- lm(GPP ~ discharge.daily + temp + max_light, data = df_use_subs)
+mod2 <- lm(GPP ~ discharge.daily + temp + med_light, data = df_use_subs)
+
+
 library(jtools)
 summ(mod, scale = TRUE, vifs = TRUE)
-effect_plot(mod, pred = DOC, interval = TRUE, plot.points = TRUE)
+effect_plot(mod, pred = CHLA, interval = TRUE, plot.points = TRUE)
+interact_plot(mod, pred = CHLA, modx = period, plot.points = TRUE)
 plot_summs(mod, mod2, scale = TRUE)
 export_summs(mod, scale = TRUE, vifs = TRUE,
              error_pos = "right", ci_level = 0.95,
@@ -149,12 +201,6 @@ abline(-2, 0, col = "red")
 
 # Check for outliers in x-space
 h <- hatvalues(model_trans)
-# h.df <- data.frame(
-#                    h = h,
-#                    Index = 1:51)
-# levels(h.df$state) <- c(levels(h.df$state), "DC")
-# h.df$state[h.df$state == "District of Columbia"] <- "DC"
-
 hlim <- (2 * 6 / 189)
 plot(h,
      ylab = "Hat values")
@@ -166,25 +212,3 @@ with(subset(h.df, h >= hlim),
 cooks <- cooks.distance(model_trans)
 c.df <- data.frame(state = df_use_subs$GPP,
                    c = cooks)
-
-plot(cooks,
-     ylab = "Cook's Distance")
-abline(1, 0, col = "red")
-with(subset(c.df, c >= 1),
-     text(Index, c, state, pos = 4, offset = 0.8))
-
-# Remove DC and see what happens
-df.nodc <- states[states$State != "District of Columbia", ]
-
-# Re-run analysis without DC
-mod.nodc <- lm(inv_inc ~ Education + CO2 + Pres, data = df.nodc) #Fit model
-summary(mod.nodc)
-
-# Check for multicollinearity
-vif(model_trans)
-
-# Condition number
-states$Pres.bin <- ifelse(states$Pres == "RED", 0 , 1)
-mod.bin <- lm(inv_inc ~ Education + CO2 + Pres.bin, data = states)
-library(perturb)
-colldiag(mod.bin)

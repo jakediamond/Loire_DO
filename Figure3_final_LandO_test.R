@@ -5,8 +5,8 @@
 # 
 
 # Set working directory
-setwd("//ly-lhq-srv/jake.diamond/Loire_DO")
-# setwd("Z:/Loire_DO")
+# setwd("//ly-lhq-srv/jake.diamond/Loire_DO")
+setwd("Z:/Loire_DO")
 # setwd("C:/Users/jake.diamond/Documents/Backup of Network/Loire_DO")
 
 # Load libraries
@@ -27,7 +27,8 @@ library(tidyverse)
 theme_set(theme_bw(base_size=8)+
             theme(panel.grid.major = element_blank(),
                   panel.grid.minor = element_blank(),
-                  strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))))
+                  strip.text.x = element_text(margin = margin(0,0,0,0, "cm")),
+                  plot.tag.position = c(0.15,0.95)))
 
 # Load metabolism data (and interpolated chlorophyll a data)
 df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_discharge_bins") %>%
@@ -38,7 +39,7 @@ df_met <- readRDS("Data/Loire_DO/metab_extremelyconstrainedK_gppconstrained_all_
          NEP = GPP + ER) %>%
   ungroup() %>%
   left_join(read_excel("Data/Chla_GPP_11 stations_Gien to Villandry_et HFCM.xlsx", sheet = 4) %>%
-              select(date = dateinterp, chla = chlainterp) %>%
+              dplyr::select(date = dateinterp, chla = chlainterp) %>%
               mutate(date = as.Date(date)))
 
 # Load discharge data
@@ -52,7 +53,7 @@ df_wq <- readRDS("Data/Loire_DO/middle_loire_wq") %>%
   filter(year > 1979) %>%
   ungroup() %>%
   mutate(date = ymd(paste(year, month, "01", sep = "-"))) %>%
-  select(solute, date, value)
+  dplyr::select(solute, date, value)
 
 # Load macrophtye data
 df_mac <- read_xlsx("Data/Macrophytes/all_macrophytes.xlsx",
@@ -60,6 +61,7 @@ df_mac <- read_xlsx("Data/Macrophytes/all_macrophytes.xlsx",
   group_by(year) %>%
   filter(species != "Elodea nuttallii") %>% #outlier species
   summarize(area = sum(surface_area, na.rm = TRUE))
+
 # First panel, Granger causality ------------------------------------------
 # Nest data
 df_met_n <- df_met %>%
@@ -75,27 +77,25 @@ df_met_n <- df_met %>%
   na.trim(.) %>%
   as.data.frame(.) %>%
   na_kalman(., maxgap = 3) %>% #fill gaps of up to 3 days with kalman filter
-  # na_seadec(., find_frequency = TRUE, algorithm = "kalman") %>%
-  # mutate(gpp = if_else(is.na(GPP), 0, GPP),
-  #        er = if_else(is.na(ER), 0, ER)) %>%
   as_tibble(.) %>%
   group_by(year) %>%
+  dplyr::filter(between(month, 5, 9)) %>%
+  slice(which(row_number() %% 7 == 1)) %>%
   nest()
 
 # test if data is stationarity, do granger causality
 df_gc <- df_met_n %>%
-  # mutate(stat = future_map(data, ~adf.test(diff(.$gpp))$p.val)) # commented out for now, but tests for stationarity
-  mutate(summer_data = future_map(data, ~ dplyr::filter(., between(.$month, 5, 9))),
-         gc_er_gpp = future_map(summer_data, ~ grangertest(diff(.$ER) ~ diff(.$GPP), 
+  #mutate(stat = future_map(data, ~adf.test(diff(.$chla))$p.val)) # commented out for now, but tests for stationarity
+  mutate(gc_er_gpp = map(data, ~ grangertest(diff(.$ER) ~ diff(.$GPP),
                                                    order = 1)),
-         gc_gpp_chla = future_map(data, ~grangertest(.$GPP ~ .$chla, 
+         gc_gpp_chla = map(data, ~grangertest(.$GPP ~ .$chla,
                                                      order = 1))) %>%
   unnest(c(gc_er_gpp, gc_gpp_chla), names_sep = ".") %>%
-  mutate(regime = if_else(year < 2012, 0, 1))
+  mutate(regime = if_else(year < 2013, 0, 1))
 
 # plotting dataframe
 df_gc_p <- df_gc %>%
-  select(year, regime, contains("Pr")) %>%
+  dplyr::select(year, regime, contains("Pr")) %>%
   ungroup() %>%
   drop_na() %>%
   pivot_longer(cols = -c(year, regime), 
@@ -112,19 +112,19 @@ p_grang <- ggplot(data = df_gc_p,
                       group = causality)) +
   geom_point() +
   scale_shape_manual(values = c(16, 1)) +
-  scale_color_aaas(name = "regime",
+  scale_color_aaas(name = "metabolic regime",
                     breaks = c(0,1),
                     labels = c("phytoplankton", "macrophytes")) +
-  guides(color = FALSE) +
-  annotate(geom = "rect", xmin = 2011,
-            xmax = 2012,
+  # guides(color = TRUE) +
+  annotate(geom = "rect", xmin = 2013,
+            xmax = 2014,
             ymin = -Inf,
             ymax = Inf,
            alpha = 0.4,
            fill = "dark blue") +
-  annotate("segment", x = 2007.5, xend = 2011, y = 0.15, yend = 0.15, 
+  annotate("segment", x = 2008, xend = 2013, y = 0.15, yend = 0.15, 
            colour = "black", arrow=arrow(length = unit(0.2,"cm"))) +
-  annotate("segment", x = 1996.5, xend = 1993, y = 0.15, yend = 0.15, 
+  annotate("segment", x = 1996, xend = 1993, y = 0.15, yend = 0.15, 
            colour = "black", arrow=arrow(length = unit(0.2,"cm"))) +
   annotate(geom = "text",
            x = 2002,
@@ -132,14 +132,17 @@ p_grang <- ggplot(data = df_gc_p,
            label = "GPP and ER tightly coupled",
            size = 2.5) +
   geom_line() +
-  theme(legend.position = c(0.2, 0.75),
-        legend.spacing.y = unit(0.2, 'cm')) + 
+  theme(legend.position = c(0.38, 0.65),
+        legend.spacing.y = unit(0.2, 'cm'),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key.height = unit(0.2, "cm"),
+        legend.box = "horizontal",
+        legend.margin = margin(t = 0, b = -0.1, unit='cm')) + 
   geom_hline(yintercept = 0.05, linetype = "dashed") +
   scale_x_continuous(breaks = seq(1993, 2018, 2),
                      limits = c(1993, 2018)) +
   xlab("") +
-  ylab(expression(Granger~causality~p-val)) +
-  labs(subtitle = "A")
+  ylab(expression(Granger~causality~p-val))
 p_grang
 
 # Second panel, NEP over time ---------------------------------------------
@@ -152,85 +155,111 @@ p_nep <- df_met %>%
   mutate(NEP_se = NEP_sd / sqrt(NEP_n),
          lower.ci.NEP = NEP_mean - qt(1 - (0.05 / 2), NEP_n - 1) * NEP_se,
          upper.ci.NEP = NEP_mean + qt(1 - (0.05 / 2), NEP_n - 1) * NEP_se,
-         regime = if_else(year < 2012, 0, 1)) %>%
+         regime = if_else(year < 2013, 0, 1)) %>%
   ggplot(aes(x = year,
              y = NEP_mean,
              color = as.factor(regime),
              group = 1)) +
   geom_line() +
   geom_point() +
-  annotate(geom = "rect", xmin = 2011,
-           xmax = 2012,
+  annotate(geom = "rect", xmin = 2013,
+           xmax = 2014,
            ymin = -Inf,
            ymax = Inf,
            alpha = 0.4,
            fill = "dark blue") +
   geom_errorbar(aes(ymin = lower.ci.NEP, ymax = upper.ci.NEP), width =0.2)  +
   geom_hline(yintercept = 0) +
-  scale_color_aaas(name = "regime",
+  scale_color_aaas(name = "metabolic regime",
                    breaks = c(0,1),
                    labels = c("phytoplankton", "macrophytes")) +
   scale_x_continuous(breaks = seq(1993, 2018, 2),
                      limits = c(1993, 2018)) +
   scale_y_continuous(sec.axis = sec_axis(~ . * -250*44*180*12/32/44/1e3, 
-                                         name = expression("Summer C efflux to atmosphere (kg C "*km^{-1}*")"))) +
-  theme(legend.position = c(0.2, 0.15)) + 
-  # scale_color_viridis_c(name = "year") +
-  # theme(legend.key.height = unit(0.2, "cm"),
-  #       legend.direction = "horizontal",
-  #       legend.position = c(0.5, 0.85),
-  #       legend.background = element_rect(color = "transparent")) +
-  labs(subtitle = "B") +
+                                         name = expression("summer C efflux (kg C "*km^{-1}*")"))) +
+  theme(legend.position = c(0.2, 0.18),
+        legend.spacing.y = unit(0.2, 'cm'),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key.height = unit(0.2, "cm"),
+        legend.margin = margin(t = 0, b = -0.1, unit='cm')) + 
   xlab("")+
   ylab(expression(NEP~(g~O[2]~m^{-2}~d^{-1})))
 p_nep
-
-
 # Third panel, Damkohler number -------------------------------------------
-# First, estimate annual ratio of macrophytes to chla
+# First, estimate annual scaled ratio of macrophytes to chla
+# to determine relative CN uptake 
 df_ratio <- df_wq %>%
   filter(solute == "CHLA",
-         between(month(date), 7, 9),
-         year(date) > 1992) %>% #want period of highest chlorophyll
+         between(month(date), 7, 9),#want period of highest chlorophyll
+         year(date) > 1992) %>% 
   mutate(year = year(date)) %>%
   group_by(year) %>%
   summarize(chla = mean(value, na.rm = TRUE)) %>%
-  left_join(df_mac) %>%
-  mutate(area = if_else(is.na(area), 0, area)) %>%
-  # mutate_at(vars(area) # linear interpolate for 2015
-  mutate(ratio = area / chla) %>%
+  left_join(df_mac %>%
+              bind_rows(tibble(year = 2015, area = NA)) %>%
+              arrange(year) %>%
+              mutate(area = na_interpolation(area))) %>% # linear interpolate for 2015, missing data
+  mutate(ratio = if_else(is.na(area / chla), 0, area / chla)) %>%
   mutate_at(vars(ratio), rescale, to = c(0.001, 1)) %>%
-  select(year, ratio)
+  dplyr::select(year, ratio)
 
-# join data together to calculate damkohler
+# join data together to calculate damkohler; use monthly averages
 df_da <- left_join(df_met, df_q) %>%
-  left_join(pivot_wider(df_wq, names_from = solute, values_from = value)) %>%
+  mutate(depth = 0.134 * discharge.daily^0.4125) %>% #get depth from discharge data, site specific eqn
+  group_by(year, month) %>%
+  summarize(GPP = mean(GPP, na.rm = TRUE),
+            ER = mean(ER, na.rm = TRUE),
+            q = mean(discharge.daily, na.rm = TRUE),
+            depth = mean(depth, na.rm = TRUE),
+            chla = mean(chla, na.rm = TRUE)) %>%
+  na_kalman() %>%
+  right_join(pivot_wider(df_wq, names_from = solute, values_from = value) %>%
+              dplyr::select(date, DOC, CHLA, PheoP, NO3, TKN, NH4) %>%
+              mutate(month = month(date),
+                     year = year(date)) %>%
+              group_by(month) %>% 
+              mutate(DOC = if_else(is.na(DOC), #replace NA DOC with mean monthly/sd DOC
+                                   mean(DOC, na.rm = TRUE) - 2 + 
+                                     sd(DOC, na.rm = TRUE), DOC) / 1.5) %>% 
+              ungroup()) %>%
   mutate(uptake_alg = GPP * (12/32) / 8, # calculate autotrophic nitrogen uptake based on stoichiometry
          uptake_mac = GPP * (12/32) / 20) %>%  #C/N = 8:1 for algae, 20:1 for macro
-  # mutate(period = if_else(year < 2006, 0, 1)) %>%
-  left_join(df_ratio) %>%
-  mutate(uptake = uptake_alg * (1 - ratio) + uptake_mac * ratio) 
+  right_join(df_ratio) %>%
+  mutate(uptake = if_else(year < 2005, uptake_alg, uptake_mac)) %>%
+           # uptake_alg * (1 - ratio) + uptake_mac * ratio) %>%
+  mutate(POC = 32 * (CHLA + PheoP)/1000) %>% #conversion of pigments to POC from Minaudo et al. 2016
+  na_kalman() %>% #interpolate remaining NAs
+  mutate(TOC = POC + DOC, #total organic carbon
+         NO3 = NO3 * 14.01 / 62, #get as N
+         NH4 = NH4 * 14.01 / 18, #get as N
+         TIN = NO3 + NH4)
 
-# Summarize this data by year
+# Calculate dahmkohler number by monthly averages
 df_dasum <- df_da %>%
-  mutate(DOC = if_else(is.na(DOC), mean(DOC, na.rm = TRUE), DOC), #replace NA DOC with mean DOC
-         POC = 32 * (CHLA/100 + PheoP/100), #conversion of pigments to POC from Minaudo et al. 2012
-         TOC = POC + DOC, #total organic carbon
-         rxnC = abs((ER)) * 12/32, #reaction in units of gC/d/m2
-         transC = discharge.daily * ((TOC) * 86400) / 200, #transport in gC/d/m2 assuming 1 m depth and 200 m wide
+  mutate(rxnC = abs(ER) * 12/32 * 10000 * 250, #reaction in units of gC/d over 10 km reach
+         transC = ((q * TOC) * 86400), #transport in gC/d/m2 assuming 250 m wide
          DaC = rxnC / transC) %>%
-  mutate(NO3 = NO3 * 14.01 / 62,
-         NH4 = NH4 * 14.01 / 18,
-         # NO3 = if_else(is.na(NO3), mean(NO3, na.rm = TRUE), NO3), #replace NA NO3 with mean NO3
-         # TKN = if_else(is.na(TKN), mean(TKN, na.rm = TRUE), TKN), #replace NA TKN with mean TKN
-         TN = NO3 + NH4,
-         rxnN = abs(uptake), #reaction in units of gN/d/m2
-         transN = discharge.daily * ((TN) * 86400) / 200, #transport in gN/d/m2 assuming 1 m depth and 200 m wide
+  mutate(rxnN = abs(uptake) * 10000 * 250, #reaction in units of gN/d/m2
+         transN = ((q * TIN) * 86400), #transport in gN/d/m2 assuming 250 m wide
          DaN = rxnN / transN) %>%
   group_by(year) %>%
-  summarize(DaC = mean(DaC, na.rm = TRUE),
-            DaN = mean(DaN, na.rm = TRUE)) %>%
-  mutate(regime = if_else(year < 2012, 0, 1)) %>%
+  # mutate(nlog = log(DaN),
+  #        clog = log(DaC)) %>%
+  # summarize(meanN = mean(nlog, na.rm = TRUE),
+  #           meanC = mean(clog, na.rm = TRUE),
+  #           sdC = sd(clog, na.rm = TRUE),
+  #           sdN = sd(clog, na.rm = TRUE),
+  #           DaC = exp(meanC + 0.5*sdC^2),
+  #           DaN = exp(meanN + 0.5*sdN^2)) %>%
+
+            # sdl = ml*sqrt(exp(sd^2)-1),
+            # sel = sdl / sqrt(n()))
+  summarize(DaC = sum(rxnC) / sum(transC),
+            DaN = sum(rxnN) / sum(transN)) %>%
+  # summarize(DaC = mean(DaC, na.rm = TRUE),
+  #           DaN = mean(DaN, na.rm = TRUE)) %>%
+  dplyr::select(year, DaC, DaN) %>%
+  mutate(regime = if_else(year < 2013, 0, 1)) %>%
   pivot_longer(cols = -c(year, regime), 
                names_to = "element", 
                names_prefix = "Da",
@@ -246,46 +275,49 @@ p_da <- ggplot(data = df_dasum,
   scale_shape_manual(name = "element",
                        breaks = c("C", "N"),
                        values = c(16, 1)) +
-  # scale_linetype_manual(name = "element",
-  #                         breaks = c("C", "N"),
-  #                         values = c("solid", "long dash")) +
-  scale_y_log10(breaks = scales::trans_breaks("log10", function(x) 10^x),
-                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_linetype_manual(name = "element",
+                          breaks = c("C", "N"),
+                          values = c("solid", "long dash")) +
+  scale_y_log10(breaks = c(10^-3, 10^-2, 10^-1),
+                labels = scales::trans_format("log10", scales::math_format(10^.x)),
+                limits = c(10^-3, 10^-0.5),
+                expand = c(0, 0)) +
   scale_x_continuous(breaks = seq(1993, 2018, 2)) +
-  scale_color_aaas(name = "regime",
+  scale_color_aaas(name = "metabolic regime",
                    breaks = c(0,1),
                    labels = c("phytoplankton", "macrophytes")) +
-  guides(color = FALSE) +
   annotation_logticks(
-    base = 10,
     sides = "l") +
-  theme(legend.position = c(0.18, 0.4),
-        legend.spacing.y = unit(0.2, 'cm')) +
-  # annotate(geom = "rect", xmin = 2011,
-  #          xmax = 2013,
-  #          ymin = min(df_dasum$Da),
-  #          ymax = max(df_dasum$Da),
-  #          alpha = 0.4,
-  #          fill = "dark blue") +
-  # annotate(geom = "text",
-  #          x = 2006,
-  #          y = 10^-7.6,
-  #          label = "ER:TOC river flux",
-  #          size = 2.5) +
-  # annotate(geom = "text",
-  #          x = 2000.5,
-  #          y = 10^-6.1,
-  #          label = "autotrophic nitrate uptake:TN river flux",
-  #          size = 2.5) +
+  annotate(geom = "rect", xmin = 2013,
+           xmax = 2014,
+           ymin = 10^-3,
+           ymax = 10^-0.5,
+           alpha = 0.4,
+           fill = "dark blue") +
+  annotate(geom = "text",
+           x = 2006,
+           y = 10^-0.8,
+           label = "ER:TOC river flux",
+           size = 2.5) +
+  annotate(geom = "text",
+           x = 2000.5,
+           y = 10^-2.8,
+           label = "autotrophic nitrate uptake:TIN river flux",
+           size = 2.5) +
   ylab(expression("mean annual Damkohler")) +
-  theme(axis.title.x = element_blank()) +
-  labs(subtitle = "C")
+  theme(axis.title.x = element_blank(),
+        legend.position = c(0.7, 0.55),
+        legend.spacing.y = unit(0.2, 'cm'),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(fill = "transparent"),
+        legend.key.height = unit(0.2, "cm"),
+        legend.box = "horizontal",
+        legend.margin = margin(t = 0, b = -0.1, unit='cm'))
 p_da
-
 
 # Fourth panel, change in controls on GPP ---------------------------------
 # Read in regression data
-df_reg <- read_csv2("data_for_regression_v2.csv") %>%
+df_reg <- read_csv2("Data/data_for_regression_v2.csv") %>%
   mutate(period = if_else(period == "pre", 0, 1))
 
 df_use_subs <- df_reg %>%
@@ -334,52 +366,20 @@ p_cont <- ggplot(data = df_cont,
                 position=position_dodge(width = 0.9), 
                 colour="black", width = 0.3) +
   geom_hline(yintercept = 0) +
-  scale_fill_aaas(name = "regime",
+  scale_fill_aaas(name = "metabolic regime",
                   breaks = c(0,1),
                   labels = c("phytoplankton", "macrophytes")) +
   theme(legend.position = c(0.75, 0.3)) +
   xlab("environmental driver") +
-  ylab("linear response slope of GPP") +
-  labs(subtitle = "D")
+  ylab("linear response slope of GPP")
   
-
 p_cont
-# 
-# 
-# # Cumulative annual discharge vs cumlative annual gpp
-# df_all <- left_join(df_met, df_q)
-# 
-# df_cum <- df_all %>%
-#   mutate(month = month(date),
-#          year = year(date)) %>%
-#   # filter(between(month, 6, 7)) %>%
-#   group_by(year) %>%
-#   summarize(q_cum = sum(ifelse(
-#     between(month, 3, 5), discharge.daily, NA), na.rm = TRUE),
-#     GPP_cum = sum(ifelse(
-#       between(month, 4, 10), GPP, NA),  na.rm = TRUE)) %>%
-#   mutate(transition = if_else(year < 2012, "before", "after"))
-# 
-# ggplot(data = df_cum,
-#        aes(x = q_cum,
-#            y = GPP_cum,
-#            color = year,
-#            shape = transition)) +
-#   geom_point() +
-#   stat_smooth(aes(group = transition), method = "lm") +
-#   scale_color_viridis_c() +
-#   theme_bw() +
-#   geom_text(aes(label = year))
-# 
-# mod <- lm(GPP_cum ~ q_cum:transition, data = df_cum)
-# plot(mod)
-# plot(residuals(mod))
-# summary(mod)
 # Final figure ------------------------------------------------------------
 
 # Plot all plots
-((p_grang/ p_da) | (p_nep / p_cont)) %>%
-  ggsave(filename = "Figures/Middle_Loire/Figure2_v3.svg",
+(((p_cont / p_nep) | (p_da / p_grang)) +
+   plot_annotation(tag_levels = 'a'))
+ggsave(filename = "Figures/Figure3_LandO_final.svg",
          device = "svg",
          dpi = 300,
          height = 100,

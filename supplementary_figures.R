@@ -1108,7 +1108,7 @@ p_q <- ggplot(data = df_raw,
   ylab(expression(atop("discharge","("*m^3~s^{-1}*")")))
 p_q
 
-p_light <- ggplot(data = df_raw,
+p_light <- ggplot(data = filter(df_raw, year(date) < 2018),
                   aes(x = date,
                       y = med_light)) + 
   theme_bw(base_size = 8) + geom_line() +
@@ -1210,8 +1210,8 @@ p_do
 
 # Plot all that data in monthly form
 ((p_q / p_light/ p_temp / p_do) + plot_annotation(tag_levels = 'a'))%>%
-  ggsave(filename = "Figures/Middle_Loire/supplementary/monthly_inputs_summary_final.svg",
-         device = "svg",
+  ggsave(filename = "Figures/supplementary/monthly_inputs_summary_final.png",
+         device = "png",
          dpi = 300,
          width = 183,
          height = 100,
